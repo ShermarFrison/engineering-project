@@ -15,8 +15,8 @@ class Context extends RefCounted:
 	var fov: float = deg_to_rad(90.0)
 	var vision_range: float = 10.0
 	var local_mark_radius: float = 2.5
-	var last_investigated_pos: Vector3 = Vector3.ZERO
-	var last_investigated_time: float = -INF
+	## Recently investigated spots, each {"pos": Vector3, "time": float}; ignored for investigate_cooldown.
+	var investigated: Array[Dictionary] = []
 	var investigate_cooldown: float = 10.0
 	## Without vision, a blob this close counts as a detection: Patrol/Investigate -> Chase.
 	var chase_blob_dist: float = 3.0
@@ -24,8 +24,23 @@ class Context extends RefCounted:
 	var chase_last_pos: Vector3 = Vector3.ZERO
 	var chase_last_seen: float = -INF
 	# blob-only catch that caught nobody (prop or wall end); ignored for investigate_cooldown
-	var dud_pos: Vector3 = Vector3.ZERO
-	var dud_time: float = -INF
+	var duds: Array[Dictionary] = []
+
+
+static func _remember(list: Array[Dictionary], pos: Vector3, now: float, ttl: float) -> void:
+	var i: int = list.size() - 1
+	while i >= 0:
+		if now - float(list[i]["time"]) >= ttl:
+			list.remove_at(i)
+		i -= 1
+	list.append({"pos": pos, "time": now})
+
+
+static func _near_any(list: Array[Dictionary], p: Vector3, radius: float, now: float, ttl: float) -> bool:
+	for e: Dictionary in list:
+		if now - float(e["time"]) < ttl and p.distance_to(e["pos"]) < radius:
+			return true
+	return false
 
 
 static func blob_world_pos(bb: Blackboard, blob: Dictionary) -> Vector3:
@@ -39,19 +54,18 @@ static func blob_world_pos(bb: Blackboard, blob: Dictionary) -> Vector3:
 static func interesting_blob(bb: Blackboard, ctx: Context, respect_cooldown: bool = true) -> Dictionary:
 	var best: Dictionary = {}
 	var best_d: float = INF
-	for blob in bb.blobs:
+	for blob: Dictionary in bb.blobs:
 		var p: Vector3 = blob_world_pos(bb, blob)
 		var skip: bool = false
-		for id in bb.caught_ids:
+		for id: int in bb.caught_ids:
 			if bb.last_known.has(id) and bb.last_known[id]["position"].distance_to(p) < 1.5:
 				skip = true
 				break
 		if skip:
 			continue
-		if bb.time - ctx.dud_time < ctx.investigate_cooldown and p.distance_to(ctx.dud_pos) < 1.0:
+		if SeekerStates._near_any(ctx.duds, p, 1.0, bb.time, ctx.investigate_cooldown):
 			continue
-		if respect_cooldown and bb.time - ctx.last_investigated_time < ctx.investigate_cooldown \
-				and p.distance_to(ctx.last_investigated_pos) < 2.0:
+		if respect_cooldown and SeekerStates._near_any(ctx.investigated, p, 2.0, bb.time, ctx.investigate_cooldown):
 			continue
 		if blob["distance"] < best_d:
 			best_d = blob["distance"]
@@ -69,7 +83,7 @@ static func near_blob_without_vision(bb: Blackboard, ctx: Context) -> bool:
 
 static func nearest_seen_hider(bb: Blackboard) -> Dictionary:
 	var best: Dictionary = {}
-	for s in bb.seen_hiders():
+	for s: Dictionary in bb.seen_hiders():
 		if best.is_empty() or s["distance"] < best["distance"]:
 			best = s
 	return best
@@ -146,9 +160,8 @@ class Investigate extends FSMState:
 		elif ctx.chase_last_seen > -INF and bb.time - ctx.chase_last_seen < 30.0:
 			target = ctx.chase_last_pos
 		else:
-			target = ctx.last_investigated_pos
-		ctx.last_investigated_pos = target
-		ctx.last_investigated_time = bb.time
+			target = bb.position
+		SeekerStates._remember(ctx.investigated, target, bb.time, ctx.investigate_cooldown)
 		bb.goal_pos = target
 		bb.goal_active = true
 
@@ -186,6 +199,15 @@ class Chase extends FSMState:
 	func enter(bb: Blackboard) -> void:
 		_entered = bb.time
 		ctx.chase_last_seen = -INF
+		var seen: Dictionary = SeekerStates.nearest_seen_hider(bb)
+		if not seen.is_empty():
+			bb.goal_pos = seen["position"]
+		else:
+			var blob: Dictionary = SeekerStates.interesting_blob(bb, ctx, false)
+			if not bb.vision_enabled and not blob.is_empty():
+				bb.goal_pos = SeekerStates.blob_world_pos(bb, blob)
+			else:
+				bb.goal_pos = bb.position
 		bb.goal_active = true
 
 	## Shared pursuit step for a seen hider (request = its id) or, without vision, a
@@ -246,8 +268,7 @@ class Catch extends FSMState:
 	func exit(bb: Blackboard) -> void:
 		if bb.catch_request == -1 and bb.caught_ids.size() == _caught_before:
 			# Blind catch found no hider: the blob was a prop or a wall end. Ignore it for a while.
-			ctx.dud_pos = ctx.chase_last_pos
-			ctx.dud_time = bb.time
+			SeekerStates._remember(ctx.duds, ctx.chase_last_pos, bb.time, ctx.investigate_cooldown)
 		bb.catch_request = 0
 
 

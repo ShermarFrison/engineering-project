@@ -38,7 +38,7 @@ func _start(ctx: SeekerStates.Context, bb: Blackboard, state: String) -> FSM:
 
 func _tick(fsm: FSM, bb: Blackboard, seconds: float) -> void:
 	var steps: int = int(round(seconds * 60.0))
-	for i in steps:
+	for i: int in steps:
 		bb.time += 1.0 / 60.0
 		fsm.update(bb, 1.0 / 60.0)
 
@@ -127,7 +127,7 @@ func test_patrol_ignores_blob_near_caught_hider() -> void:
 func test_investigate_to_patrol_on_timeout() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
-	ctx.last_investigated_pos = Vector3(0, 0, -4)
+	ctx.investigated.append({"pos": Vector3(0, 0, -4), "time": 0.0})
 	var fsm := _start(ctx, bb, "Investigate")
 	_tick(fsm, bb, ctx.investigate_timeout + 0.2)
 	assert_str(fsm.current_name()).is_equal("Patrol")
@@ -137,7 +137,7 @@ func test_investigate_to_patrol_on_timeout() -> void:
 func test_investigate_to_patrol_after_arrival_dwell() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
-	ctx.last_investigated_pos = Vector3(0, 0, -4)
+	ctx.investigated.append({"pos": Vector3(0, 0, -4), "time": 0.0})
 	var fsm := _start(ctx, bb, "Investigate")
 	bb.position = Vector3(0, 0, -4)
 	bb.goal_reached = true
@@ -151,7 +151,7 @@ func test_investigate_to_patrol_after_arrival_dwell() -> void:
 func test_investigate_to_patrol_when_stuck() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
-	ctx.last_investigated_pos = Vector3(0, 0, -4)
+	ctx.investigated.append({"pos": Vector3(0, 0, -4), "time": 0.0})
 	var fsm := _start(ctx, bb, "Investigate")
 	_tick(fsm, bb, 0.5)
 	assert_str(fsm.current_name()).is_equal("Investigate")
@@ -247,7 +247,8 @@ func test_failed_blind_catch_marks_blob_as_dud() -> void:
 	# Nobody appended to caught_ids during Catch: the blob was a prop or a wall end.
 	_tick(fsm, bb, ctx.catch_delay + 0.1)
 	assert_str(fsm.current_name()).is_equal("Patrol")
-	assert_float(ctx.dud_pos.distance_to(Vector3(0, 0, -1))).is_less(0.01)
+	assert_int(ctx.duds.size()).is_equal(1)
+	assert_float((ctx.duds[0]["pos"] as Vector3).distance_to(Vector3(0, 0, -1))).is_less(0.01)
 	_tick(fsm, bb, 1.0)  # the same blob is still in view but ignored: no Chase/Catch loop
 	assert_str(fsm.current_name()).is_equal("Patrol")
 
@@ -258,3 +259,21 @@ func test_chase_with_no_target_and_nothing_known_goes_to_patrol() -> void:
 	var fsm := _start(ctx, bb, "Chase")
 	_tick(fsm, bb, ctx.lose_timeout + 0.2)
 	assert_str(fsm.current_name()).is_equal("Patrol")
+
+
+func test_two_props_in_range_do_not_loop_blind_catch() -> void:
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(_ctx(), bb, "Patrol")
+	bb.blobs = [{"angle": 0.0, "distance": 1.0, "width": 0.3}, {"angle": 1.0, "distance": 1.2, "width": 0.3}]
+	_tick(fsm, bb, 8.0)
+	assert_bool(int(fsm.transition_counts.get("Chase->Catch", 0)) <= 2).is_true()
+
+
+func test_two_blobs_do_not_ping_pong_investigate() -> void:
+	var bb := _bb()
+	var fsm := _start(_ctx(), bb, "Patrol")
+	bb.goal_reached = true
+	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.3}, {"angle": 1.0, "distance": 5.0, "width": 0.3}]
+	_tick(fsm, bb, 9.0)
+	assert_bool(int(fsm.transition_counts.get("Patrol->Investigate", 0)) <= 2).is_true()
