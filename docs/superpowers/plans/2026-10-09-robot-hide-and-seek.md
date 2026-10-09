@@ -20,15 +20,16 @@
 - All robot logic runs in `_physics_process` (fixed 60 Hz ticks); nothing behaviour-relevant in `_process`.
 - Forward axis is `-Z` (Godot convention). Yaw is rotation about `+Y`; positive yaw / positive bearing = turn left (counter-clockwise from above).
 - Collision layers: 1 = walls + floor, 2 = props, 3 = robots.
-- Sensors never read other robots' blackboards or scene state directly except through physics queries; vision candidate lookup uses the `robots` group followed by a line-of-sight raycast.
-- Tests: `./run_tests.sh` must exit 0 before every commit. It runs `--import` then the gdUnit4 CLI on `res://tests`.
+- Sensors never read other robots' blackboards or scene state directly except through physics queries; vision candidate lookup uses the `robots` group followed by a line-of-sight raycast. Every sensor raycast passes `exclude = [body.get_rid()]`: the lidar and ultrasonic origins sit inside the robot's own `Mast` collision box.
+- Tests: `./run_tests.sh` must exit 0 before every commit. It runs `--import` then the gdUnit4 CLI on `res://tests`. Exit 101 (orphan nodes) is a failure, never accepted.
+- Scene tests `extends PhysicsTestSuite` (Task 1) and count time in physics ticks: `await ticks(n)` (60 ticks = 1 simulated second) or `await ticks_until(pred, max_ticks)`. `runner.simulate_frames(n)` counts process frames, which run unthrottled in headless mode (≈0.4 ticks per frame, machine dependent), so it is never used to wait. `scene_runner(...)` is only called with a `"res://…"` path or an `auto_free(...)` node; anything else leaks orphans and gdUnit exits 101.
 - Commit after every task with the message style `feat|test|chore: <summary>` and the trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Verified engine facts to rely on (see `NOTES/godot-headless-gotchas.md`): chassis needs `friction = 0.0` material; navmesh must be baked from the arena root via `parse_source_geometry_data`; path queries need ~3 physics frames after the region is added with synchronous map iterations.
 
 ## Review Focus
 
-1. **A hider is inside tag range but behind a crate.** Expected: not caught (LOS blocked by props). Pinned in Task 16 `test_catch_rule_blocked_los`.
-2. **Seeker has vision disabled and bumps into a hider by chance.** Expected: not a catch unless the seeker is in Chase/Catch, which requires a lidar blob detection. Pinned in Task 16 `test_catch_requires_chase_state` and `test_blind_seeker_touching_hider_does_not_catch`, and Task 13 `test_patrol_to_investigate_on_blob`.
+1. **A hider is inside tag range but behind a crate.** Expected: not caught (LOS blocked by props). Pinned in Task 16 `test_catch_rule_blocked_los` (predicate) and the scene test `test_hider_behind_crate_not_caught` (real crate between seeker and hider 1.0 m apart, seeker forced into Chase with a catch request, GameManager's mask-3 LOS ray decides), with `test_same_face_off_without_crate_is_caught` as its positive control.
+2. **Seeker has vision disabled and bumps into a hider by chance.** Expected: not a catch unless the seeker is in Chase/Catch, which without vision requires a lidar blob within `chase_blob_dist`. Pinned in Task 16 `test_catch_requires_chase_state` and `test_blind_seeker_touching_hider_does_not_catch`, and Task 13 `test_patrol_to_investigate_on_blob`, `test_patrol_to_chase_on_near_blob_without_vision` and `test_investigate_to_chase_on_near_blob_without_vision` (the blind seeker can reach Chase, and so catch, only through a near blob).
 3. **Prop spawner given a seed where random positions keep colliding.** Expected: it gives up after a bounded number of attempts and places fewer props rather than hanging. Pinned in Task 5 `test_spawner_terminates_on_crowded_arena`.
 4. **Round time runs out with hiders uncaught.** Expected: round ends, survivors recorded with `caught=false`, CSV row still complete. Pinned in Task 16 `test_round_ends_on_timeout` and Task 18 `test_csv_row_with_survivors`.
 5. **Same seed, two runs.** Expected: identical CSV rows. Pinned in Task 18 `test_same_seed_same_results` (scene test running two short rounds back to back in one world).
@@ -40,7 +41,7 @@
 | `run_tests.sh` | Import + run gdUnit4 headless; exit code is the verdict |
 | `scripts/robot/drive_model.gd` | `DriveModel` (RefCounted): unicycle math, wheel clamping, acceleration limiting |
 | `scripts/robot/drive.gd` | `DriveBody` (RigidBody3D): applies `DriveModel` in `_integrate_forces`, exposes contacts + odometry stats |
-| `scenes/robots/robot.tscn` | Robot scene: `DriveBody` root, chassis + wheel meshes, sensor nodes, `Brain` node |
+| `scenes/robots/robot.tscn` | Robot scene: `DriveBody` root, chassis + `Mast` collision boxes, chassis/mast/wheel meshes, sensor nodes, `Brain` node |
 | `scripts/robot/perception.gd` | `Blackboard` (RefCounted): sensor fields, memory, derived helpers, FSM outputs |
 | `scripts/robot/lidar_blobs.gd` | `LidarBlobs` static clustering of lidar hits into robot-sized blobs |
 | `scripts/robot/sensors/lidar.gd` / `vision_cone.gd` / `ultrasonic.gd` / `bumper.gd` | One Node3D each, `sense(bb)` writes to blackboard |
@@ -51,8 +52,10 @@
 | `scripts/robot/fsm/seeker_states.gd` | Seeker states |
 | `scripts/robot/fsm/hider_states.gd` | Hider states |
 | `scripts/robot/fsm/hider_strategy.gd` | `HiderStrategy`, `StaticHider`, `DynamicHider` |
+| `scripts/robot/fsm/goto_state.gd` | `GoToState`: single fixed-goal state for tests and debugging |
 | `scripts/robot/robot.gd` | `RobotBrain` (Node): ticks sensors → FSM → motion → drive; role/strategy wiring |
-| `scripts/game/nav_service.gd` | `NavService` (Node): bake navmesh from arena root, readiness, path queries |
+| `scripts/game/arena.gd` | `Arena` (Node3D, root of `arena.tscn`): bounds, wall footprints, spawn points, child roots |
+| `scripts/game/nav_service.gd` | `NavService` (Node): bake navmesh from arena root, readiness, path queries (`find_path`) |
 | `scripts/game/visibility_grid.gd` | `VisibilityGrid` (RefCounted): walkable cells, openness, viewed-time, spot/patrol picking |
 | `scripts/game/prop_layout.gd` | `PropLayout` pure seeded placement with overlap/corridor constraints |
 | `scripts/game/prop_spawner.gd` | `PropSpawner` (Node3D): instantiates crates from a `PropLayout` |
@@ -63,7 +66,10 @@
 | `scripts/experiment/experiment_config.gd` | `ExperimentConfig` (Resource): named variants |
 | `scripts/experiment/batch_runner.gd` | `BatchRunner` (Node): args, loop, CSV, time scale |
 | `scripts/ui/hud.gd`, `camera_rig.gd` | HUD and camera |
+| `scripts/main.gd` | Visual entry point: starts a round from the default config, hotkeys (overlay, restart, camera) |
 | `scenes/arena/arena.tscn`, `scenes/props/crate.tscn`, `scenes/main.tscn`, `scenes/batch.tscn` | Scenes |
+| `tests/helpers/physics_test_suite.gd` | `PhysicsTestSuite` (extends `GdUnitTestSuite`): `ticks(n)`, `ticks_until(pred, max_ticks)`; base of every scene test |
+| `tests/helpers/nav_arena_helper.gd` | `NavArenaHelper`: auto-freed arena with a baked, ready navmesh; robot spawn; walls-only LOS callable |
 | `tests/unit/*_test.gd`, `tests/scene/*_test.gd`, `tests/fixtures/*.tscn` | Tests |
 | `experiments/*.tres`, `experiments/analyze.py` | Experiment configs and analysis |
 
@@ -73,11 +79,17 @@
 
 **Files:**
 - Create: `run_tests.sh`, `tests/unit/smoke_test.gd`, `scripts/.gdkeep` (empty), `.gitignore` (modify)
+- Create: `tests/helpers/physics_test_suite.gd`
 - Create: `addons/gdUnit4/` (copied from gdUnit4 6.2.2 release)
 - Modify: `project.godot`
+- Test: `tests/scene/physics_test_suite_test.gd`
 
 **Interfaces:**
-- Produces: `./run_tests.sh [extra gdUnit args]` exit 0 = all tests pass, 100 = failures.
+- Produces: `./run_tests.sh [extra gdUnit args]` exit 0 = all tests pass, 100 = failures, 101 = orphan nodes reported (a failure too; fix the leak, never accept 101).
+- Produces: `class_name PhysicsTestSuite extends GdUnitTestSuite` (`tests/helpers/physics_test_suite.gd`), the base class of every scene test suite:
+  - `func ticks(n: int) -> void`: awaits exactly `n` physics ticks (`get_tree().physics_frame`); 60 ticks = 1 simulated second.
+  - `func ticks_until(pred: Callable, max_ticks: int) -> bool`: awaits physics ticks until `pred.call()` is true (checked before each tick) or `max_ticks` ticks have passed; returns whether it became true.
+  - gdUnit does not run `PhysicsTestSuite` itself as a suite (it has no `test_` functions); probed with gdUnit4 6.2.2: 0 orphans, exit 0.
 
 - [ ] **Step 1: Install gdUnit4 6.2.2**
 
@@ -116,7 +128,7 @@ world/map_use_async_iterations=false
 
 ```bash
 #!/usr/bin/env bash
-# Runs the gdUnit4 suite headless. Exit 0 = pass, 100 = failures.
+# Runs the gdUnit4 suite headless. Exit 0 = pass, 100 = failures, 101 = orphan nodes (also a failure).
 set -u
 cd "$(dirname "$0")"
 GODOT=./Godot_v4.7.2-stable_linux.x86_64
@@ -154,10 +166,85 @@ In `project.godot` change `config/name="Engineering Project"` to `config/name="R
 
 Run: `./run_tests.sh` → `0 failures`, exit code 0.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Write the failing physics-tick helper test**
+
+`tests/scene/physics_test_suite_test.gd`:
+
+```gdscript
+extends PhysicsTestSuite
+
+
+func test_ticks_advance_exactly_n_physics_frames() -> void:
+	var start: int = Engine.get_physics_frames()
+	await ticks(60)
+	assert_int(Engine.get_physics_frames() - start).is_equal(60)
+
+
+func test_ticks_until_returns_true_when_predicate_holds() -> void:
+	var start: int = Engine.get_physics_frames()
+	var ok: bool = await ticks_until(func() -> bool: return Engine.get_physics_frames() - start >= 10, 100)
+	assert_bool(ok).is_true()
+	assert_int(Engine.get_physics_frames() - start).is_between(10, 11)
+
+
+func test_ticks_until_gives_up_after_budget() -> void:
+	var start: int = Engine.get_physics_frames()
+	var ok: bool = await ticks_until(func() -> bool: return false, 20)
+	assert_bool(ok).is_false()
+	assert_int(Engine.get_physics_frames() - start).is_equal(20)
+
+
+func test_scene_runner_with_auto_free_and_ticks() -> void:
+	var root := Node3D.new()
+	var body := RigidBody3D.new()
+	var cs := CollisionShape3D.new()
+	cs.shape = BoxShape3D.new()
+	body.add_child(cs)
+	root.add_child(body)
+	var runner := scene_runner(auto_free(root))
+	await ticks(30)
+	assert_float(body.global_position.y).is_less(0.0)  # no floor: it falls under gravity
+	assert_object(runner.scene()).is_same(root)
+```
+
+Run: `./run_tests.sh` → errors (`PhysicsTestSuite` unknown).
+
+- [ ] **Step 9: Write the helper**
+
+`tests/helpers/physics_test_suite.gd`:
+
+```gdscript
+## Base class for scene tests. Waits are counted in physics ticks (60 per
+## simulated second), never in process frames: headless process frames are
+## not throttled, so simulate_frames(n) is not n/60 seconds.
+class_name PhysicsTestSuite
+extends GdUnitTestSuite
+
+
+## Await exactly n physics ticks (60 ticks = 1 simulated second).
+func ticks(n: int) -> void:
+	for i in n:
+		await get_tree().physics_frame
+
+
+## Await physics ticks until pred.call() is true or max_ticks have passed.
+## Returns true if the predicate became true within the budget.
+func ticks_until(pred: Callable, max_ticks: int) -> bool:
+	for i in max_ticks:
+		if pred.call():
+			return true
+		await get_tree().physics_frame
+	return pred.call()
+```
+
+- [ ] **Step 10: Run, expect pass**
+
+Run: `./run_tests.sh` → 5 test cases (smoke + 4 helper tests), 0 failures, 0 orphans, exit code 0. Every `scene_runner(...)` in this plan wraps its node argument in `auto_free(...)` inline (or passes a `res://` path).
+
+- [ ] **Step 11: Commit**
 
 ```bash
-git add -A && git commit -m "chore: add gdUnit4, test runner, collision layer names
+git add -A && git commit -m "chore: add gdUnit4, test runner, physics-tick test base, collision layer names
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -297,7 +384,7 @@ func max_linear_speed() -> float:
 
 - [ ] **Step 4: Run, expect pass**
 
-Run: `./run_tests.sh` → 8 test cases, 0 failures.
+Run: `./run_tests.sh` → 12 test cases (7 new + smoke + 4 `PhysicsTestSuite` tests), 0 failures.
 
 - [ ] **Step 5: Commit**
 
@@ -324,9 +411,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `func set_command(v: float, w: float) -> void` (desired body velocity, applied on next physics tick)
   - `func yaw() -> float`, `func forward() -> Vector3` (unit, world)
   - `var distance_travelled: float`, `var collision_count: int`
-  - `var contacts: Array[Dictionary]` each `{"normal": Vector3 (world, pointing away from other body into us), "position": Vector3 (world), "collider": Object}` refreshed each physics tick
-  - Robot scene node paths: `Chassis` (MeshInstance3D), `WheelL`, `WheelR` (MeshInstance3D), `Sensors` (Node3D at eye height 0.25), `Brain` (Node, script attached in Task 14)
-  - Robot is in group `robots`, collision layer 3, mask 1|2|3.
+  - `var contacts: Array[Dictionary]` each `{"normal": Vector3 (world, pointing away from other body into us), "position": Vector3 (world)}` refreshed each physics tick
+  - Wheel spin (visual only): `_physics_process(dt)` rotates the `WheelL`/`WheelR` meshes about their axle by `model.wl * dt` / `model.wr * dt` (`DriveModel.wl`/`wr` are the current wheel speeds).
+  - Robot scene node paths: `CollisionShape3D` (chassis box 0.4 × 0.2 × 0.5 at the origin), `Mast` (CollisionShape3D, `BoxShape3D` 0.3 × 0.3 × 0.3 at local (0, 0.25, 0); spans local y 0.1–0.4 so the lidar plane and the vision LOS target hit it), `Chassis` (MeshInstance3D), `MastMesh` (MeshInstance3D, same box and transform as `Mast`), `WheelL`, `WheelR` (MeshInstance3D at x = ∓0.2, matching `track_width` 0.4), `Sensors` (Node3D at local y = 0.15, inside the mast; world y ≈ 0.24 at rest), `Brain` (Node, script attached in Task 15)
+  - Robot is in group `robots`, collision layer 3, mask 1|2|3. Rest height of the body origin is y ≈ 0.089 (chassis on the floor; the mast does not change it).
 
 - [ ] **Step 1: Write the fixture floor scene**
 
@@ -367,7 +455,7 @@ shape = SubResource("wall_shape")
 `tests/scene/drive_body_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const FLOOR := preload("res://tests/fixtures/flat_floor.tscn")
@@ -380,13 +468,17 @@ func _spawn(runner: GdUnitSceneRunner, pos: Vector3) -> DriveBody:
 	return robot
 
 
+func _xz(p: Vector3) -> Vector2:
+	return Vector2(p.x, p.z)
+
+
 func test_forward_command_moves_along_minus_z() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot := _spawn(runner, Vector3(0, 0.3, 0))
-	await runner.simulate_frames(10)  # settle on floor
+	await ticks(60)  # settle on the floor (the 0.3 m spawn drops ~0.2 m in ~12 ticks)
 	var start: Vector3 = robot.global_position
 	robot.set_command(1.0, 0.0)
-	await runner.simulate_frames(60)  # 1 s at 60 Hz
+	await ticks(60)  # 1 s at 60 Hz; the wheel ramp-up costs ~0.08 m
 	var moved: Vector3 = robot.global_position - start
 	assert_float(moved.z).is_between(-1.1, -0.8)
 	assert_float(absf(moved.x)).is_less(0.05)
@@ -394,36 +486,36 @@ func test_forward_command_moves_along_minus_z() -> void:
 
 
 func test_turn_command_rotates_in_place() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot := _spawn(runner, Vector3(0, 0.3, 0))
-	await runner.simulate_frames(10)
+	await ticks(60)  # settle first: the settling drop must not count as movement
 	var start: Vector3 = robot.global_position
 	robot.set_command(0.0, 1.0)
-	await runner.simulate_frames(60)
+	await ticks(60)
 	assert_float(robot.yaw()).is_between(0.9, 1.1)
-	assert_float(robot.global_position.distance_to(start)).is_less(0.05)
+	assert_float(_xz(robot.global_position).distance_to(_xz(start))).is_less(0.05)
 
 
 func test_stop_command_holds_still() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot := _spawn(runner, Vector3(0, 0.3, 0))
-	await runner.simulate_frames(10)
+	await ticks(60)
 	robot.set_command(1.0, 0.0)
-	await runner.simulate_frames(30)
+	await ticks(30)
 	robot.set_command(0.0, 0.0)
-	await runner.simulate_frames(30)
+	await ticks(30)
 	var p: Vector3 = robot.global_position
-	await runner.simulate_frames(30)
-	assert_float(robot.global_position.distance_to(p)).is_less(0.02)
+	await ticks(30)
+	assert_float(_xz(robot.global_position).distance_to(_xz(p))).is_less(0.02)
 
 
 func test_contacts_and_collision_count_when_driving_into_wall() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot := _spawn(runner, Vector3(3.5, 0.3, 0))
-	await runner.simulate_frames(10)
+	await ticks(60)
 	robot.rotation.y = -PI / 2  # face +X toward the wall at x=5
 	robot.set_command(1.5, 0.0)
-	await runner.simulate_frames(120)
+	await ticks(120)  # 2 s; the 1.15 m gap (front 3.75 to wall face 4.9) closes after ~0.85 s
 	assert_int(robot.collision_count).is_greater_equal(1)
 	assert_array(robot.contacts).is_not_empty()
 	var n: Vector3 = robot.contacts[0]["normal"]
@@ -431,11 +523,23 @@ func test_contacts_and_collision_count_when_driving_into_wall() -> void:
 
 
 func test_robot_is_in_robots_group_and_layer_3() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot := _spawn(runner, Vector3(0, 0.3, 0))
-	await runner.simulate_frames(1)
+	await ticks(1)
 	assert_bool(robot.is_in_group("robots")).is_true()
 	assert_int(robot.collision_layer).is_equal(4)
+
+
+func test_wheel_meshes_spin_when_driving() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var robot := _spawn(runner, Vector3(0, 0.3, 0))
+	await ticks(60)
+	var wheel: MeshInstance3D = robot.get_node("WheelL")
+	var before: Basis = wheel.transform.basis
+	robot.set_command(1.0, 0.0)
+	await ticks(10)
+	assert_bool(wheel.transform.basis.is_equal_approx(before)).is_false()
+	assert_vector(wheel.position).is_equal_approx(Vector3(-0.2, -0.05, 0.0), Vector3(1e-4, 1e-4, 1e-4))  # spins in place
 ```
 
 - [ ] **Step 3: Run, expect failure**
@@ -469,6 +573,14 @@ var _cmd_w: float = 0.0
 var _had_contact: bool = false
 var _last_pos: Vector3
 
+# Visual wheel spin: rest basis from the scene plus an accumulated axle angle.
+var _wheel_l: Node3D
+var _wheel_r: Node3D
+var _wheel_l_rest: Basis = Basis.IDENTITY
+var _wheel_r_rest: Basis = Basis.IDENTITY
+var _spin_l: float = 0.0
+var _spin_r: float = 0.0
+
 
 func _ready() -> void:
 	model.wheel_radius = wheel_radius
@@ -481,6 +593,24 @@ func _ready() -> void:
 	axis_lock_angular_x = true
 	axis_lock_angular_z = true
 	_last_pos = global_position
+	_wheel_l = get_node_or_null("WheelL") as Node3D
+	_wheel_r = get_node_or_null("WheelR") as Node3D
+	if _wheel_l:
+		_wheel_l_rest = _wheel_l.transform.basis
+	if _wheel_r:
+		_wheel_r_rest = _wheel_r.transform.basis
+
+
+## Visual only: spin the wheel meshes about their axle at the current wheel speeds.
+## The cylinder's local Y is the axle (robot X); positive wheel speed drives toward -Z,
+## which is a negative rotation about +X.
+func _physics_process(dt: float) -> void:
+	_spin_l = wrapf(_spin_l - model.wl * dt, -PI, PI)
+	_spin_r = wrapf(_spin_r - model.wr * dt, -PI, PI)
+	if _wheel_l:
+		_wheel_l.transform.basis = _wheel_l_rest * Basis(Vector3.UP, _spin_l)
+	if _wheel_r:
+		_wheel_r.transform.basis = _wheel_r_rest * Basis(Vector3.UP, _spin_r)
 
 
 func set_command(v: float, w: float) -> void:
@@ -514,7 +644,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		contacts.append({
 			"normal": n,
 			"position": state.get_contact_local_position(i),
-			"collider": state.get_contact_collider_object(i),
 		})
 	var has_contact: bool = not contacts.is_empty()
 	if has_contact and not _had_contact:
@@ -529,14 +658,14 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	_last_pos = p
 ```
 
-Note: `get_contact_local_normal` / `get_contact_local_position` are world-space despite the name (Godot docs). If the wall test's normal sign is inverted, negate `n` once here and keep the test as written.
+Note: `get_contact_local_normal` / `get_contact_local_position` are world-space despite the name (Godot docs). If the wall test's normal sign is inverted, negate `n` once here and keep the test as written. (A pre-flight probe of exactly this code and test with Godot 4.7.2 + Jolt passed `n.x < -0.9`, so no negation was needed there.)
 
 - [ ] **Step 5: Write robot.tscn**
 
 `scenes/robots/robot.tscn`:
 
 ```
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/robot/drive.gd" id="drive"]
 
@@ -552,6 +681,15 @@ size = Vector3(0.4, 0.2, 0.5)
 
 [sub_resource type="StandardMaterial3D" id="chassis_mat"]
 albedo_color = Color(0.2, 0.6, 0.9, 1)
+
+[sub_resource type="BoxShape3D" id="mast_shape"]
+size = Vector3(0.3, 0.3, 0.3)
+
+[sub_resource type="BoxMesh" id="mast_mesh"]
+size = Vector3(0.3, 0.3, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="mast_mat"]
+albedo_color = Color(0.95, 0.85, 0.3, 1)
 
 [sub_resource type="CylinderMesh" id="wheel_mesh"]
 top_radius = 0.1
@@ -572,17 +710,26 @@ script = ExtResource("drive")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("chassis_shape")
 
+[node name="Mast" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+shape = SubResource("mast_shape")
+
 [node name="Chassis" type="MeshInstance3D" parent="."]
 mesh = SubResource("chassis_mesh")
 surface_material_override/0 = SubResource("chassis_mat")
 
+[node name="MastMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+mesh = SubResource("mast_mesh")
+surface_material_override/0 = SubResource("mast_mat")
+
 [node name="WheelL" type="MeshInstance3D" parent="."]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.225, -0.05, 0)
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.2, -0.05, 0)
 mesh = SubResource("wheel_mesh")
 surface_material_override/0 = SubResource("wheel_mat")
 
 [node name="WheelR" type="MeshInstance3D" parent="."]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.225, -0.05, 0)
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.2, -0.05, 0)
 mesh = SubResource("wheel_mesh")
 surface_material_override/0 = SubResource("wheel_mat")
 
@@ -597,7 +744,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
 [node name="Brain" type="Node" parent="."]
 ```
 
-The `Nose` block marks the front (-Z) so direction is readable in screenshots.
+The `Nose` block marks the front (-Z) so direction is readable in screenshots. The `Mast` box (local y 0.1–0.4, world ≈ 0.19–0.49 at rest) is what other robots' sensors see: the chassis top (world ≈ 0.19) lies below the lidar plane (world ≈ 0.24) and the vision LOS target (body origin + 0.25). Probe with this geometry (Godot 4.7.2, Jolt, 3 runs): vision LOS from `Sensors/Vision` to `other + (0, 0.25, 0)` confirmed 12/12 robots at 1–6 m, both while falling and at rest; every robot hit by the 36-ray lidar produced a blob under the Task 7 thresholds. The wheel meshes sit at x = ±0.2, matching `track_width` 0.4.
 
 - [ ] **Step 6: Run, expect pass**
 
@@ -605,7 +752,7 @@ Run: `./run_tests.sh` → all pass. If `test_turn_command_rotates_in_place` yaw 
 
 - [ ] **Step 7: Visual check via computer-use-vnc**
 
-Open `scenes/robots/robot.tscn` in the running editor (double-click in FileSystem dock), confirm the chassis, two wheels and nose render. Take a screenshot into `docs/screenshots/robot.png` (create the dir). This is a check, not a test; no code change expected.
+Open `scenes/robots/robot.tscn` in the running editor (double-click in FileSystem dock), confirm the chassis, mast, two wheels and nose render. Take a screenshot into `docs/screenshots/robot.png` (create the dir). This is a check, not a test; no code change expected.
 
 - [ ] **Step 8: Commit**
 
@@ -621,10 +768,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: Arena scene and navigation service
 
 **Files:**
-- Create: `scenes/arena/arena.tscn`, `scripts/game/nav_service.gd`, `scripts/game/arena.gd`
+- Create: `scenes/arena/arena.tscn`, `scripts/game/nav_service.gd`, `scripts/game/arena.gd`, `tests/helpers/nav_arena_helper.gd`
 - Test: `tests/scene/nav_service_test.gd`
 
 **Interfaces:**
+- Consumes: `PhysicsTestSuite` (Task 1), `robot.tscn` / `DriveBody` (Task 3, for `NavArenaHelper.spawn_robot`).
 - Produces:
   - `class_name Arena extends Node3D` (root of `arena.tscn`) with children `Static` (Node3D holding all wall StaticBody3Ds), `Props` (Node3D, empty, filled by spawner), `Robots` (Node3D), `SeekerSpawn` (Marker3D), `HiderSpawns` (Node3D with 5 Marker3D children), `NavService` (Node, script `nav_service.gd`).
   - `func bounds() -> Rect2` → arena floor rectangle in XZ: `Rect2(-15, -15, 30, 30)`
@@ -633,48 +781,77 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `class_name NavService extends Node`
     - `func bake(source_root: Node3D) -> void` bakes walls-only navmesh (layer 1), creates/replaces its `NavigationRegion3D` child
     - `func is_ready() -> bool` true once a trivial path query between two known points returns ≥ 2 points
-    - `func get_path(from: Vector3, to: Vector3) -> PackedVector3Array`
-    - `func closest_point(p: Vector3) -> Vector3`
+    - `func find_path(from: Vector3, to: Vector3) -> PackedVector3Array` (not `get_path`: that name overrides the native `Node.get_path() -> NodePath` and the script fails to parse)
     - `@export var agent_radius: float = 0.35`, `@export var cell_size: float = 0.25`
+  - `tests/helpers/nav_arena_helper.gd` (`class_name NavArenaHelper extends RefCounted`), shared by this task's test and Task 15:
+    - `static func ready_arena(suite: PhysicsTestSuite) -> Array` → `[runner, arena]`: loads `arena.tscn` through `suite.scene_runner(suite.auto_free(...))`, bakes the navmesh, waits up to 30 physics ticks for `nav.is_ready()`, and fails the calling test (via `suite.assert_bool`) if it never becomes ready.
+    - `static func spawn_robot(arena: Arena, pos: Vector3, role: String) -> DriveBody` (adds a robot 0.3 m above `pos` under `arena.robots_root`)
+    - `static func los_walls(arena: Arena) -> Callable` `(a: Vector3, b: Vector3) -> bool`, true when a walls-only (mask 1) ray 0.3 m above the floor is clear.
 
-- [ ] **Step 1: Write the failing scene test**
+- [ ] **Step 1: Write the shared helper and the failing scene test**
+
+`tests/helpers/nav_arena_helper.gd`:
+
+```gdscript
+## Shared setup for scene tests that need the arena with a baked, ready navmesh.
+class_name NavArenaHelper
+extends RefCounted
+
+const ARENA := preload("res://scenes/arena/arena.tscn")
+const ROBOT := preload("res://scenes/robots/robot.tscn")
+
+
+## Loads the arena through the suite's scene runner (auto-freed with the test),
+## bakes the walls-only navmesh and waits up to 30 physics ticks for path
+## queries to work. Returns [runner, arena].
+static func ready_arena(suite: PhysicsTestSuite) -> Array:
+	var runner: GdUnitSceneRunner = suite.scene_runner(suite.auto_free(ARENA.instantiate()))
+	var arena: Arena = runner.scene()
+	arena.nav.bake(arena.static_root)
+	var ok: bool = await suite.ticks_until(arena.nav.is_ready, 30)
+	suite.assert_bool(ok).append_failure_message("navmesh never became ready within 30 ticks").is_true()
+	return [runner, arena]
+
+
+static func spawn_robot(arena: Arena, pos: Vector3, role: String) -> DriveBody:
+	var r: DriveBody = ROBOT.instantiate()
+	r.role = role
+	r.position = pos + Vector3(0, 0.3, 0)
+	arena.robots_root.add_child(r)
+	return r
+
+
+static func los_walls(arena: Arena) -> Callable:
+	return func(a: Vector3, b: Vector3) -> bool:
+		var q := PhysicsRayQueryParameters3D.create(a + Vector3(0, 0.3, 0), b + Vector3(0, 0.3, 0), 1)
+		return arena.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+```
 
 `tests/scene/nav_service_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ARENA := preload("res://scenes/arena/arena.tscn")
 
 
-func _ready_arena() -> Array:  # [runner, arena]
-	var runner := scene_runner(ARENA.instantiate())
-	var arena: Arena = runner.scene()
-	arena.nav.bake(arena.static_root)
-	for i in 30:
-		await runner.simulate_frames(1)
-		if arena.nav.is_ready():
-			break
-	return [runner, arena]
-
-
-func test_nav_becomes_ready_within_30_frames() -> void:
-	var r := await _ready_arena()
+func test_nav_becomes_ready_within_30_ticks() -> void:
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	assert_bool(arena.nav.is_ready()).is_true()
 
 
 func test_path_between_seeker_and_every_hider_spawn() -> void:
-	var r := await _ready_arena()
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	for h in arena.hider_spawn_points():
-		var path: PackedVector3Array = arena.nav.get_path(arena.seeker_spawn_point(), h)
+		var path: PackedVector3Array = arena.nav.find_path(arena.seeker_spawn_point(), h)
 		assert_int(path.size()).append_failure_message("no path to %s" % h).is_greater_equal(2)
 		assert_float(path[-1].distance_to(h)).is_less(1.0)
 
 
 func test_wall_rects_and_bounds() -> void:
-	var runner := scene_runner(ARENA.instantiate())
+	var runner := scene_runner(auto_free(ARENA.instantiate()))
 	var arena: Arena = runner.scene()
 	assert_that(arena.bounds()).is_equal(Rect2(-15, -15, 30, 30))
 	var rects: Array[Rect2] = arena.wall_rects()
@@ -684,8 +861,7 @@ func test_wall_rects_and_bounds() -> void:
 
 
 func test_hider_spawns_not_visible_from_seeker_spawn() -> void:
-	var r := await _ready_arena()
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	var space := arena.get_world_3d().direct_space_state
 	var eye: Vector3 = arena.seeker_spawn_point() + Vector3(0, 0.3, 0)
@@ -750,19 +926,15 @@ func is_ready() -> bool:
 		return true
 	if _region == null:
 		return false
-	var path: PackedVector3Array = get_path(_probe_a, _probe_b)
+	var path: PackedVector3Array = find_path(_probe_a, _probe_b)
 	_ready_flag = path.size() >= 2
 	return _ready_flag
 
 
-func get_path(from: Vector3, to: Vector3) -> PackedVector3Array:
+## Named find_path, not get_path: a Node subclass may not override Node.get_path().
+func find_path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	var map: RID = get_viewport().world_3d.navigation_map
 	return NavigationServer3D.map_get_path(map, from, to, true)
-
-
-func closest_point(p: Vector3) -> Vector3:
-	var map: RID = get_viewport().world_3d.navigation_map
-	return NavigationServer3D.map_get_closest_point(map, p)
 ```
 
 - [ ] **Step 4: Implement arena.gd**
@@ -891,7 +1063,7 @@ Open `arena.tscn` in the editor, orbit the 3D view to a top-down angle, confirm 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add scenes/arena scripts/game/arena.gd scripts/game/nav_service.gd tests/scene/nav_service_test.gd docs/screenshots
+git add scenes/arena scripts/game/arena.gd scripts/game/nav_service.gd tests/helpers/nav_arena_helper.gd tests/scene/nav_service_test.gd docs/screenshots
 git commit -m "feat: hand-built arena scene and navigation service
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -1130,22 +1302,25 @@ Scaling a `StaticBody3D` scales its shape in Jolt; this is acceptable for static
 `tests/scene/prop_spawner_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ARENA := preload("res://scenes/arena/arena.tscn")
 
 
 func test_spawn_places_crates_that_block_rays() -> void:
-	var runner := scene_runner(ARENA.instantiate())
+	var runner := scene_runner(auto_free(ARENA.instantiate()))
 	var arena: Arena = runner.scene()
 	var spawner := PropSpawner.new()
 	arena.add_child(spawner)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
-	var layout := PropLayout.generate(rng, 12, arena.bounds(), arena.wall_rects(),
-		[arena.seeker_spawn_point()] + arena.hider_spawn_points(), PropSpawner.SIZES)
+	# Build the typed keep-clear list with append_array: `[a] + typed_array` is an
+	# untyped Array and fails at runtime when passed as Array[Vector3].
+	var keep: Array[Vector3] = [arena.seeker_spawn_point()]
+	keep.append_array(arena.hider_spawn_points())
+	var layout := PropLayout.generate(rng, 12, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
 	spawner.spawn(layout, arena.props_root)
-	await runner.simulate_frames(2)
+	await ticks(2)
 	assert_int(arena.props_root.get_child_count()).is_equal(layout.size())
 	var space := arena.get_world_3d().direct_space_state
 	var p: Dictionary = layout[0]
@@ -1153,9 +1328,9 @@ func test_spawn_places_crates_that_block_rays() -> void:
 	var q := PhysicsRayQueryParameters3D.create(from, Vector3(p["pos"].x, 0.5, p["pos"].y), 2)
 	var hit: Dictionary = space.intersect_ray(q)
 	assert_bool(hit.is_empty()).is_false()
-	assert_bool((hit["collider"] as Node).is_in_group("props")).is_true()
+	assert_bool((instance_from_id(hit["collider_id"]) as Node).is_in_group("props")).is_true()
 	spawner.clear(arena.props_root)
-	await runner.simulate_frames(1)
+	await ticks(1)
 	assert_int(arena.props_root.get_child_count()).is_equal(0)
 ```
 
@@ -1179,7 +1354,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Create: `scripts/robot/perception.gd`, `scripts/robot/sensors/sensor_base.gd`, `scripts/robot/sensors/lidar.gd`
 - Modify: `scenes/robots/robot.tscn` (add `Sensors/Lidar` node)
-- Test: `tests/unit/blackboard_test.gd`, `tests/scene/lidar_test.gd`
+- Test: `tests/unit/blackboard_test.gd`, `tests/unit/sensor_base_test.gd`, `tests/scene/lidar_test.gd`
 
 **Interfaces:**
 - Produces:
@@ -1189,12 +1364,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
     - vision: `vision_enabled: bool`, `seen_robots: Array[Dictionary]` `{id, role, position, bearing, distance, time}`; memory `last_known: Dictionary` id → `{position, time, role}`; `seeker_last_seen_pos: Vector3`, `seeker_last_seen_time: float = -INF`
     - ultrasonic: `ultrasonic_enabled: bool`, `ultrasonic: PackedFloat32Array` `[front, left, right]`
     - bumper: `bumper_enabled: bool`, `bumper_hit: bool`, `bumper_normal: Vector3`
-    - blobs: `blobs: Array[Dictionary]` `{position: Vector3, distance, angle, time}` (filled in Task 7)
+    - blobs: `blobs: Array[Dictionary]` `{angle: float, distance: float, width: float}` (robot-relative; produced by `LidarBlobs.detect` in Task 7, assigned by `RobotBrain` in Task 15)
     - motion feedback: `stuck: bool`, `goal_reached: bool`
     - FSM outputs: `goal_pos: Vector3`, `goal_active: bool`, `catch_request: int = 0`, `state_name: String`
     - helpers: `func nearest_obstacle() -> Dictionary` `{distance, angle}` (INF if none), `func min_range_in_arc(center: float, half_width: float) -> float`, `func time_since_seeker_seen() -> float`, `func seen_hiders() -> Array[Dictionary]` (uncaught, role == "hider"), `func seen_seeker() -> Dictionary` (empty if none), `func local_to_world_dir(angle: float) -> Vector3`, `func world_to_local_angle(p: Vector3) -> float`
-  - `class_name SensorBase extends Node3D`: `@export var enabled: bool = true`, `@export var noise_std: float = 0.0`, `var body: DriveBody` (set by robot), `func sense(bb: Blackboard) -> void` (abstract, override), `func _noise(bb: Blackboard) -> float` returns `bb.rng.randfn(0.0, noise_std)` or 0.
-  - `class_name Lidar extends SensorBase`: `@export var ray_count: int = 36`, `@export var max_range: float = 8.0`, `@export var collision_mask: int = 7`. Writes `lidar_*` fields. Unhit rays read `max_range`.
+  - `class_name SensorBase extends Node3D`: `@export var enabled: bool = true`, `@export var noise_std: float = 0.0`, `@export var update_hz: float = 60.0`, `var body: DriveBody` (set by robot), `func sense(bb: Blackboard) -> void` (abstract, override), `func due(dt: float) -> bool` (rate accumulator: true when a sample is owed at `update_hz`; at the default 60 Hz with 60 Hz ticks it is true every tick; `update_hz <= 0` means every tick), `func _noise(bb: Blackboard) -> float` returns `bb.rng.randfn(0.0, noise_std)` or 0. `RobotBrain` (Task 15) calls `sense(bb)` only when `due(dt)` is true; tests call `sense(bb)` directly.
+  - `class_name Lidar extends SensorBase`: `@export var ray_count: int = 36`, `@export var max_range: float = 8.0`, `@export var collision_mask: int = 7`. Writes `lidar_*` fields. Unhit rays read `max_range`. The origin (`Sensors/Lidar`, local y 0.15) lies inside the robot's own mast, so every ray excludes `body.get_rid()`.
 
 - [ ] **Step 1: Write failing blackboard unit tests**
 
@@ -1380,23 +1555,45 @@ func seen_seeker() -> Dictionary:
 
 Run: `./run_tests.sh`.
 
-- [ ] **Step 5: Write the failing lidar scene test**
+- [ ] **Step 5: Write the failing sensor-rate and lidar scene tests**
+
+`tests/unit/sensor_base_test.gd`:
+
+```gdscript
+extends GdUnitTestSuite
+
+
+func test_due_every_tick_at_default_60_hz() -> void:
+	var s: SensorBase = auto_free(SensorBase.new())
+	for i in 10:
+		assert_bool(s.due(1.0 / 60.0)).is_true()
+
+
+func test_due_at_10_hz_samples_every_sixth_tick() -> void:
+	var s: SensorBase = auto_free(SensorBase.new())
+	s.update_hz = 10.0
+	var samples: int = 0
+	for i in 60:
+		if s.due(1.0 / 60.0):
+			samples += 1
+	assert_int(samples).is_equal(10)
+```
 
 `tests/scene/lidar_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const FLOOR := preload("res://tests/fixtures/flat_floor.tscn")
 
 
 func test_lidar_reads_wall_distance_and_max_range_elsewhere() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot: DriveBody = ROBOT.instantiate()
 	robot.position = Vector3(0, 0.3, 0)
 	runner.scene().add_child(robot)
-	await runner.simulate_frames(5)
+	await ticks(30)  # settle on the floor
 	var lidar: Lidar = robot.get_node("Sensors/Lidar")
 	lidar.body = robot
 	var bb := Blackboard.new()
@@ -1411,16 +1608,18 @@ func test_lidar_reads_wall_distance_and_max_range_elsewhere() -> void:
 		if absf(wrapf(bb.lidar_angles[i] + PI / 2, -PI, PI)) < 1e-4:
 			right_idx = i
 	assert_int(right_idx).is_not_equal(-1)
-	assert_float(bb.lidar_ranges[right_idx]).is_equal_approx(4.9, 0.1)  # wall face: centre 5.0 minus half thickness
+	# Wall face: centre 5.0 minus half thickness, measured from the lidar at the robot's
+	# centre. The origin is inside our own mast; the excluded RID keeps it out of the reading.
+	assert_float(bb.lidar_ranges[right_idx]).is_equal_approx(4.9, 0.1)
 	# Forward (-Z) is open for 30 m: reads max_range.
 	assert_float(bb.lidar_ranges[0]).is_equal_approx(lidar.max_range, 1e-3)
 
 
 func test_disabled_lidar_leaves_blackboard_empty() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var robot: DriveBody = ROBOT.instantiate()
 	runner.scene().add_child(robot)
-	await runner.simulate_frames(2)
+	await ticks(2)
 	var lidar: Lidar = robot.get_node("Sensors/Lidar")
 	lidar.body = robot
 	lidar.enabled = false
@@ -1445,12 +1644,31 @@ extends Node3D
 
 @export var enabled: bool = true
 @export var noise_std: float = 0.0
+@export var update_hz: float = 60.0  # samples per second; <= 0 means every tick
 
 var body: DriveBody
+
+var _accum: float = 0.0
 
 
 func sense(_bb: Blackboard) -> void:
 	pass
+
+
+## Rate limiter, called by RobotBrain once per physics tick. Returns true when a
+## sample is owed at update_hz. At the default 60 Hz with 60 Hz ticks this is
+## true every tick, so tests that call sense() directly are unaffected.
+func due(dt: float) -> bool:
+	if update_hz <= 0.0:
+		return true
+	var period: float = 1.0 / update_hz
+	_accum += dt
+	if _accum + 1e-6 < period:
+		return false
+	_accum -= period
+	if _accum > period:
+		_accum = 0.0  # fell far behind (huge dt): do not burst-sample
+	return true
 
 
 func _noise(bb: Blackboard) -> float:
@@ -1484,7 +1702,7 @@ func sense(bb: Blackboard) -> void:
 		return
 	var origin: Vector3 = global_position
 	var space := _space()
-	var exclude: Array[RID] = [body.get_rid()]
+	var exclude: Array[RID] = [body.get_rid()]  # the origin is inside our own mast
 	for i in ray_count:
 		var angle: float = wrapf(TAU * i / ray_count, -PI, PI)
 		var dir: Vector3 = bb.local_to_world_dir(angle)
@@ -1532,8 +1750,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces:
-  - `class_name LidarBlobs`: `static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_range: float, min_width: float = 0.2, max_width: float = 0.8, break_gap: float = 0.5) -> Array[Dictionary]` each `{"angle": float, "distance": float, "width": float}` (robot-relative). Clusters consecutive hit rays whose range differs by < `break_gap`; keeps clusters whose chord width (distance between first and last hit points) is within [min, max] AND whose neighbours on both sides are either unhit or farther by > `break_gap` (i.e. the blob stands free of walls).
-  - `class_name VisionCone extends SensorBase`: `@export var fov_deg: float = 90.0`, `@export var max_range: float = 10.0`, `@export var los_mask: int = 7`. For each `DriveBody` in group `robots` (not self): if within range and |bearing| ≤ fov/2 and a LOS ray from eye to the target's position + (0, 0.15, 0) hits that body first → append to `bb.seen_robots`, update `bb.last_known[id]`, and if role == "seeker" set `bb.seeker_last_seen_pos/time`.
+  - `class_name LidarBlobs`: `static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_range: float, min_width: float = 0.0, max_width: float = 0.5, break_gap: float = 0.5) -> Array[Dictionary]` each `{"angle": float, "distance": float, "width": float}` (robot-relative). Clusters consecutive hit rays whose range differs by < `break_gap`; keeps clusters whose chord width (distance between first and last hit points) is within [min, max] AND whose neighbours on both sides are either unhit or farther by > `break_gap` (i.e. the blob stands free of walls).
+    - Threshold rationale (robot = 0.3 m mast, 0.42 m diagonal; crates ≥ 1.0 m): with the game's 36-ray (10°) lidar a mast covers one ray beyond ≈1.7 m and at most two or three at 1 m, so a single-ray cluster (chord 0) must count: `min_width = 0.0`. The chord of a cluster never exceeds the object's true width, so `max_width = 0.5` keeps every mast; a 1.0 m crate face yields a chord > 0.5 m whenever enough rays hit it (always within ≈1.4 m). Probe of the 36-ray lidar against 1.0 m crates at 1, 1.5, 2, 3, 4 and 6 m: all rejected except the 4 m crate, which one ray hit (inherent at 10° resolution; the investigate cooldown and the Task 13 dud memory limit the cost).
+  - `static func off_walls(blobs: Array[Dictionary], bb: Blackboard, walls: Array[Rect2], margin: float = 0.1) -> Array[Dictionary]`: drops blobs whose world position (`bb.position + bb.local_to_world_dir(angle) * distance`) lies inside a known static wall footprint grown by `margin`. With `min_width = 0` the end of a 0.3 m-thick wall seen end-on is a free-standing single-ray cluster; the static layout is known to every robot (spec §2), so `RobotBrain` (Task 15) filters those out before the FSMs see them. Pre-flight probe: without this filter a lone seeker in the arena went Patrol → Investigate on wall ends within 3 s.
+  - `class_name VisionCone extends SensorBase`: `@export var fov_deg: float = 90.0`, `@export var max_range: float = 10.0`, `@export var los_mask: int = 7`, `@export var los_target_height: float = 0.25` (centre of the target's mast above its body origin). For each `DriveBody` in group `robots` (not self): if within range and |bearing| ≤ fov/2 and a LOS ray (excluding our own RID) from the eye to the target's position + (0, `los_target_height`, 0) hits that body first → append to `bb.seen_robots`, update `bb.last_known[id]`, and if role == "seeker" set `bb.seeker_last_seen_pos/time`.
 
 - [ ] **Step 1: Write failing blob tests**
 
@@ -1545,23 +1765,23 @@ extends GdUnitTestSuite
 const N := 72  # 5 degree resolution
 
 
-func _scan(hits: Dictionary) -> Array:  # idx -> range ; returns [ranges, angles]
+func _scan(hits: Dictionary, n: int = N) -> Array:  # idx -> range ; returns [ranges, angles]
 	var ranges := PackedFloat32Array()
 	var angles := PackedFloat32Array()
-	for i in N:
+	for i in n:
 		ranges.append(hits.get(i, 8.0))
-		angles.append(wrapf(TAU * i / N, -PI, PI))
+		angles.append(wrapf(TAU * i / n, -PI, PI))
 	return [ranges, angles]
 
 
 func test_robot_sized_cluster_is_a_blob() -> void:
-	# 3 consecutive rays at 3 m: chord ~= 3 * 2 * sin(5deg) = 0.52 m
-	var s := _scan({10: 3.0, 11: 3.0, 12: 3.0})
+	# 3 consecutive rays at 2 m: chord = 2 * 2 * sin(5deg) = 0.349 m (a 0.3-0.42 m mast)
+	var s := _scan({10: 2.0, 11: 2.0, 12: 2.0})
 	var blobs := LidarBlobs.detect(s[0], s[1], 8.0)
 	assert_int(blobs.size()).is_equal(1)
-	assert_float(blobs[0]["distance"]).is_equal_approx(3.0, 1e-3)
+	assert_float(blobs[0]["distance"]).is_equal_approx(2.0, 1e-3)
 	assert_float(blobs[0]["angle"]).is_equal_approx(TAU * 11 / N, 1e-6)
-	assert_float(blobs[0]["width"]).is_between(0.4, 0.6)
+	assert_float(blobs[0]["width"]).is_between(0.3, 0.4)
 
 
 func test_long_wall_is_not_a_blob() -> void:
@@ -1597,15 +1817,50 @@ func test_object_in_front_of_wall_is_a_blob_if_gap_is_large() -> void:
 
 
 func test_wraparound_cluster_across_index_zero() -> void:
+	# chord = 2 * 2.5 * sin(5deg) = 0.436 m <= max_width 0.5
 	var s := _scan({71: 2.5, 0: 2.5, 1: 2.5})
 	var blobs := LidarBlobs.detect(s[0], s[1], 8.0)
 	assert_int(blobs.size()).is_equal(1)
 	assert_float(absf(blobs[0]["angle"])).is_less(0.01)
 
 
-func test_single_ray_too_narrow() -> void:
-	var s := _scan({10: 1.0})  # chord 0 m
+func test_single_ray_is_a_blob() -> void:
+	# A far mast covers a single ray: chord 0 m, still robot-sized (min_width 0).
+	var s := _scan({10: 1.0})
+	var blobs := LidarBlobs.detect(s[0], s[1], 8.0)
+	assert_int(blobs.size()).is_equal(1)
+	assert_float(blobs[0]["width"]).is_equal_approx(0.0, 1e-6)
+
+
+func test_crate_face_at_close_range_is_not_a_blob() -> void:
+	# A 1.0 m crate face at 1 m spans ~53 deg: 11 rays at 5 deg, chord = 2 * sin(25deg) = 0.845 m > 0.5.
+	var hits := {}
+	for i in range(8, 19):
+		hits[i] = 1.0
+	var s := _scan(hits)
 	assert_array(LidarBlobs.detect(s[0], s[1], 8.0)).is_empty()
+
+
+func test_mast_seen_by_36_ray_lidar_from_1_to_6_m() -> void:
+	# The game lidar has 36 rays (10 deg). A 0.3 m mast covers two rays at 1 m
+	# (chord 2 * 1 * sin(5deg) = 0.17 m) and one ray at 2-6 m; each must be a blob.
+	var cases: Array[Dictionary] = [{2: 1.0, 3: 1.0}, {2: 2.0}, {2: 4.0}, {2: 6.0}]
+	for hits in cases:
+		var s := _scan(hits, 36)
+		var blobs := LidarBlobs.detect(s[0], s[1], 8.0)
+		assert_int(blobs.size()).append_failure_message("hits %s" % hits).is_equal(1)
+
+
+func test_off_walls_drops_blob_on_a_known_wall() -> void:
+	var bb := Blackboard.new()  # at the origin, facing -Z
+	var blobs: Array[Dictionary] = [
+		{"angle": 0.0, "distance": 3.0, "width": 0.0},     # world (0, 0, -3): the wall end
+		{"angle": PI / 2, "distance": 2.0, "width": 0.0},  # world (-2, 0, 0): free space
+	]
+	var walls: Array[Rect2] = [Rect2(-0.15, -7.0, 0.3, 4.0)]  # 0.3 m wall ending at z = -3, seen end-on
+	var kept := LidarBlobs.off_walls(blobs, bb, walls)
+	assert_int(kept.size()).is_equal(1)
+	assert_float(kept[0]["angle"]).is_equal_approx(PI / 2, 1e-6)
 ```
 
 - [ ] **Step 2: Run, expect failure**
@@ -1623,8 +1878,11 @@ class_name LidarBlobs
 extends RefCounted
 
 
+## min_width 0.0: with a 10 degree lidar a robot's 0.3 m mast is often a single ray.
+## max_width 0.5: chords never exceed true width, so every mast (<= 0.42 m) passes,
+## while 1.0 m crate faces seen by enough rays exceed it.
 static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_range: float,
-		min_width: float = 0.2, max_width: float = 0.8, break_gap: float = 0.5) -> Array[Dictionary]:
+		min_width: float = 0.0, max_width: float = 0.5, break_gap: float = 0.5) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var n: int = ranges.size()
 	if n < 3:
@@ -1681,6 +1939,23 @@ static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_r
 			"width": width,
 		})
 	return out
+
+
+## Drops blobs lying on a known static wall (grown by margin). A wall end seen
+## end-on looks like a free-standing 0.3 m object; robots know the static layout.
+static func off_walls(blobs: Array[Dictionary], bb: Blackboard, walls: Array[Rect2],
+		margin: float = 0.1) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for b in blobs:
+		var p: Vector3 = bb.position + bb.local_to_world_dir(b["angle"]) * b["distance"]
+		var on_wall: bool = false
+		for w in walls:
+			if w.grow(margin).has_point(Vector2(p.x, p.z)):
+				on_wall = true
+				break
+		if not on_wall:
+			out.append(b)
+	return out
 ```
 
 - [ ] **Step 4: Run, expect blob tests pass**
@@ -1692,7 +1967,7 @@ Run: `./run_tests.sh`.
 `tests/scene/vision_cone_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const FLOOR := preload("res://tests/fixtures/flat_floor.tscn")
@@ -1719,10 +1994,11 @@ func _sense(seeker: DriveBody) -> Blackboard:
 
 
 func test_sees_robot_in_front_within_range() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
 	var hider := _spawn(runner, Vector3(0.5, 0.3, -6), "hider")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
+	# The LOS ray runs from our eye to the hider's mast centre (body + 0.25 m) and hits the mast.
 	var bb := _sense(seeker)
 	assert_int(bb.seen_robots.size()).is_equal(1)
 	var s: Dictionary = bb.seen_robots[0]
@@ -1734,45 +2010,45 @@ func test_sees_robot_in_front_within_range() -> void:
 
 
 func test_does_not_see_robot_behind() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
 	_spawn(runner, Vector3(0, 0.3, 6), "hider")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
 	assert_array(_sense(seeker).seen_robots).is_empty()
 
 
 func test_does_not_see_robot_beyond_range() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
 	_spawn(runner, Vector3(0, 0.3, -12), "hider")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
 	assert_array(_sense(seeker).seen_robots).is_empty()
 
 
 func test_wall_blocks_line_of_sight() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	# Seeker faces +X (yaw -90deg) toward the wall at x=5; hider behind it at x=7.
 	var seeker := _spawn(runner, Vector3(2, 0.3, 0), "seeker", -PI / 2)
 	_spawn(runner, Vector3(7, 0.3, 0), "hider")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
 	assert_array(_sense(seeker).seen_robots).is_empty()
 
 
 func test_seeing_seeker_updates_seeker_memory() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var hider := _spawn(runner, Vector3(0, 0.3, 0), "hider")
 	var seeker := _spawn(runner, Vector3(0, 0.3, -4), "seeker")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
 	var bb := _sense(hider)
 	assert_float(bb.seeker_last_seen_time).is_equal_approx(4.0, 1e-6)
 	assert_float(bb.seeker_last_seen_pos.distance_to(seeker.global_position)).is_less(0.01)
 
 
 func test_disabled_vision_sees_nothing() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
 	_spawn(runner, Vector3(0, 0.3, -3), "hider")
-	await runner.simulate_frames(3)
+	await ticks(30)  # both robots settled on the floor
 	(seeker.get_node("Sensors/Vision") as VisionCone).enabled = false
 	var bb := _sense(seeker)
 	assert_bool(bb.vision_enabled).is_false()
@@ -1795,6 +2071,7 @@ extends SensorBase
 @export var fov_deg: float = 90.0
 @export var max_range: float = 10.0
 @export var los_mask: int = 7
+@export var los_target_height: float = 0.25  # centre of the target's mast above its body origin
 
 
 func sense(bb: Blackboard) -> void:
@@ -1805,12 +2082,12 @@ func sense(bb: Blackboard) -> void:
 	var eye: Vector3 = global_position
 	var half_fov: float = deg_to_rad(fov_deg) * 0.5
 	var space := _space()
-	var exclude: Array[RID] = [body.get_rid()]
+	var exclude: Array[RID] = [body.get_rid()]  # never let our own mast block the ray
 	for node in get_tree().get_nodes_in_group("robots"):
 		var other := node as DriveBody
 		if other == null or other == body:
 			continue
-		var target: Vector3 = other.global_position + Vector3(0, 0.15, 0)
+		var target: Vector3 = other.global_position + Vector3(0, los_target_height, 0)
 		var flat: Vector3 = other.global_position - bb.position  # centre to centre, like the tag range
 		flat.y = 0.0
 		var dist: float = flat.length()
@@ -1821,7 +2098,7 @@ func sense(bb: Blackboard) -> void:
 			continue
 		var q := PhysicsRayQueryParameters3D.create(eye, target, los_mask, exclude)
 		var hit: Dictionary = space.intersect_ray(q)
-		if hit.is_empty() or hit["collider"] != other:
+		if hit.is_empty() or hit["collider_id"] != other.get_instance_id():
 			continue
 		var id: int = other.get_instance_id()
 		var rec := {
@@ -1851,7 +2128,7 @@ script = ExtResource("vision")
 
 - [ ] **Step 8: Run, expect pass**
 
-Run: `./run_tests.sh`. The robots group test uses `get_tree()`, so the sensor must be inside the tree (it is, as a child of the robot).
+Run: `./run_tests.sh`. The robots group test uses `get_tree()`, so the sensor must be inside the tree (it is, as a child of the robot). The eye (`Sensors/Vision`, local (0, 0.25, -0.2)) is just ahead of our own mast and the LOS target is the other robot's mast centre, so the ray is near-horizontal at ≈0.34 m and hits the mast; `test_wall_blocks_line_of_sight` is therefore not vacuous: without the wall the hider would be seen.
 
 - [ ] **Step 9: Commit**
 
@@ -1881,7 +2158,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 `tests/scene/close_range_sensors_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const FLOOR := preload("res://tests/fixtures/flat_floor.tscn")
@@ -1907,28 +2184,30 @@ func _bb(r: DriveBody) -> Blackboard:
 
 
 func test_ultrasonic_front_reads_crate_distance() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var crate: StaticBody3D = CRATE.instantiate()
 	crate.position = Vector3(0, 0.5, -1.5)  # face at z=-1.0
 	runner.scene().add_child(crate)
 	var r := _robot(runner, Vector3(0, 0.3, 0), 0.0)
-	await runner.simulate_frames(3)
+	await ticks(30)  # settle on the floor
 	var bb := _bb(r)
 	(r.get_node("Sensors/Ultrasonic") as Ultrasonic).sense(bb)
 	assert_bool(bb.ultrasonic_enabled).is_true()
-	# sensor sits ~0.15 m ahead of the body origin, face at 1.0 => ~0.85
-	assert_float(bb.ultrasonic[0]).is_between(0.7, 1.0)
-	assert_float(bb.ultrasonic[1]).is_equal_approx(1.2, 1e-3)
-	assert_float(bb.ultrasonic[2]).is_equal_approx(1.2, 1e-3)
+	# sensor sits 0.15 m ahead of the body origin, face at 1.0 => 0.85 (probe: 0.850)
+	assert_float(bb.ultrasonic[0]).is_between(0.80, 0.90)
+	# The side cones (centred at +/-35 deg) have inner rays at +/-20 deg that graze the
+	# same crate at ~0.905 m (probe), so they read farther than the front, not clear.
+	assert_float(bb.ultrasonic[1]).is_greater(bb.ultrasonic[0])
+	assert_float(bb.ultrasonic[2]).is_greater(bb.ultrasonic[0])
 
 
 func test_ultrasonic_side_cones() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var crate: StaticBody3D = CRATE.instantiate()
 	crate.position = Vector3(-0.8, 0.5, -0.9)  # ahead-left
 	runner.scene().add_child(crate)
 	var r := _robot(runner, Vector3(0, 0.3, 0), 0.0)
-	await runner.simulate_frames(3)
+	await ticks(30)
 	var bb := _bb(r)
 	(r.get_node("Sensors/Ultrasonic") as Ultrasonic).sense(bb)
 	assert_float(bb.ultrasonic[1]).is_less(1.2)       # left sees it
@@ -1936,14 +2215,14 @@ func test_ultrasonic_side_cones() -> void:
 
 
 func test_bumper_fires_on_frontal_wall_contact_only() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var r := _robot(runner, Vector3(4.0, 0.3, 0), -PI / 2)  # facing +X toward wall at x=5
-	await runner.simulate_frames(5)
+	await ticks(30)
 	var bb := _bb(r)
 	(r.get_node("Sensors/Bumper") as Bumper).sense(bb)
 	assert_bool(bb.bumper_hit).is_false()
 	r.set_command(1.0, 0.0)
-	await runner.simulate_frames(90)
+	await ticks(90)  # 1.5 s; the 0.65 m gap (front 4.25 to wall face 4.9) closes after ~0.75 s
 	bb = _bb(r)
 	(r.get_node("Sensors/Bumper") as Bumper).sense(bb)
 	assert_bool(bb.bumper_hit).is_true()
@@ -1951,15 +2230,30 @@ func test_bumper_fires_on_frontal_wall_contact_only() -> void:
 
 
 func test_bumper_ignores_rear_contact() -> void:
-	var runner := scene_runner(FLOOR.instantiate())
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
 	var r := _robot(runner, Vector3(4.0, 0.3, 0), PI / 2)  # facing -X, wall is behind
-	await runner.simulate_frames(5)
+	await ticks(30)
 	r.set_command(-1.0, 0.0)  # reverse into the wall
-	await runner.simulate_frames(90)
+	await ticks(90)
 	var bb := _bb(r)
 	(r.get_node("Sensors/Bumper") as Bumper).sense(bb)
 	assert_bool(bb.bumper_hit).is_false()
 	assert_array(r.contacts).is_not_empty()  # we did touch it
+
+
+func test_bumper_hits_crate() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var crate: StaticBody3D = CRATE.instantiate()
+	crate.position = Vector3(0, 0.5, -1.5)  # face at z = -1.0; chassis front at z = -0.25
+	runner.scene().add_child(crate)
+	var r := _robot(runner, Vector3(0, 0.3, 0), 0.0)
+	await ticks(30)
+	r.set_command(1.0, 0.0)
+	await ticks(90)  # the 0.75 m gap closes after ~0.85 s
+	var bb := _bb(r)
+	(r.get_node("Sensors/Bumper") as Bumper).sense(bb)
+	assert_bool(bb.bumper_hit).is_true()
+	assert_float(bb.bumper_normal.z).is_greater(0.9)  # the crate pushes us back toward +Z
 ```
 
 - [ ] **Step 2: Run, expect failure**
@@ -1988,7 +2282,7 @@ func sense(bb: Blackboard) -> void:
 		return
 	var origin: Vector3 = global_position
 	var space := _space()
-	var exclude: Array[RID] = [body.get_rid()]
+	var exclude: Array[RID] = [body.get_rid()]  # the origin sits on our own mast's front face
 	for c in directions_deg.size():
 		var center: float = deg_to_rad(directions_deg[c])
 		var best: float = max_range
@@ -2064,7 +2358,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `scenes/robots/robot.tscn` (add `DebugOverlay` MeshInstance3D child of root)
 
 **Interfaces:**
-- Produces: `class_name DebugOverlay extends MeshInstance3D`, `func draw(bb: Blackboard, lidar: Lidar, vision: VisionCone) -> void`, `static var visible_globally: bool = false` toggled by the HUD (Task 16). When hidden, `draw` clears the mesh and returns.
+- Produces: `class_name DebugOverlay extends MeshInstance3D`, `func draw(bb: Blackboard, vision: VisionCone) -> void` (lidar rays come from the blackboard; `vision` supplies the cone's FOV and range), `static var visible_globally: bool = false` toggled by `main.gd` (Task 17, key F1). When hidden, `draw` clears the mesh and returns.
 
 No unit test: this is pure rendering. Verification is visual in Step 3.
 
@@ -2074,7 +2368,7 @@ No unit test: this is pure rendering. Verification is visual in Step 3.
 
 ```gdscript
 ## Draws lidar rays and the vision cone with an ImmediateMesh. Toggle with
-## DebugOverlay.visible_globally (HUD key F1). Draw happens in robot-local space.
+## DebugOverlay.visible_globally (F1, handled by main.gd). Draws in world space.
 class_name DebugOverlay
 extends MeshInstance3D
 
@@ -2093,7 +2387,7 @@ func _ready() -> void:
 	top_level = true  # we draw in world space
 
 
-func draw(bb: Blackboard, lidar: Lidar, vision: VisionCone) -> void:
+func draw(bb: Blackboard, vision: VisionCone) -> void:
 	_im.clear_surfaces()
 	if not visible_globally:
 		return
@@ -2142,13 +2436,13 @@ Run: `./run_tests.sh` → still green.
 
 - [ ] **Step 3: Visual verification deferred**
 
-The overlay is exercised in Task 16 (HUD F1 toggle) where a round is running. Record in the commit message that visual verification happens there.
+The overlay is exercised in Task 17 (`main.gd` F1 toggle) where a round is running. Record in the commit message that visual verification happens there.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add scripts/robot/sensors/debug_overlay.gd scenes/robots/robot.tscn
-git commit -m "feat: sensor debug overlay (visual check in HUD task)
+git commit -m "feat: sensor debug overlay (visual check in Task 17 main scene)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -2169,8 +2463,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
     - `static func speed_scale(front_clearance: float, slow_dist: float = 2.0, min_scale: float = 0.2) -> float`
   - `class_name Motion extends RefCounted`
     - `var path_provider: Callable` `(from: Vector3, to: Vector3) -> PackedVector3Array`
-    - exports-as-vars: `max_v = 2.0`, `max_w = 3.0`, `k_ang = 2.5`, `waypoint_radius = 0.6`, `arrive_radius = 0.5`, `replan_period = 2.0`, `stuck_window = 4.0`, `stuck_progress = 0.3`, `recovery_time = 0.8`
-    - `func update(bb: Blackboard, dt: float) -> Vector2` → (v, ω)
+    - exports-as-vars: `max_v = 2.0`, `max_w = 3.0`, `k_ang = 2.5`, `waypoint_radius = 0.6`, `arrive_radius = 0.5`, `replan_period = 2.0`, `stuck_window = 4.0`, `stuck_progress = 0.3`, `recovery_time = 0.8`, `avoid_dist = 1.5` (passed to `Steering.pick_heading`; the tuning knob named in Task 15)
+    - `func update(bb: Blackboard) -> Vector2` → (v, ω); all timing comes from `bb.time`
     - `func reset() -> void`
     - `var path: PackedVector3Array` (read-only for overlay/tests)
 
@@ -2317,7 +2611,7 @@ func test_reaches_goal_in_open_space() -> void:
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(5, 0, -5))
 	var reached: bool = false
 	for i in 600:  # 10 s
-		var cmd: Vector2 = m.update(bb, 1.0 / 60.0)
+		var cmd: Vector2 = m.update(bb)
 		if bb.goal_reached:
 			reached = true
 			break
@@ -2330,7 +2624,7 @@ func test_turns_toward_goal_first() -> void:
 	var m := Motion.new()
 	m.path_provider = _straight
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(5, 0, 0))  # goal to the right (+X) => negative w
-	var cmd: Vector2 = m.update(bb, 1.0 / 60.0)
+	var cmd: Vector2 = m.update(bb)
 	assert_float(cmd.y).is_less(0.0)
 	assert_float(cmd.x).is_less(m.max_v * 0.5)  # slow while turning
 
@@ -2340,7 +2634,7 @@ func test_inactive_goal_stops() -> void:
 	m.path_provider = _straight
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(5, 0, 0))
 	bb.goal_active = false
-	assert_vector(m.update(bb, 0.016)).is_equal(Vector2.ZERO)
+	assert_vector(m.update(bb)).is_equal(Vector2.ZERO)
 
 
 func test_stuck_flag_when_no_progress() -> void:
@@ -2349,7 +2643,7 @@ func test_stuck_flag_when_no_progress() -> void:
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(0, 0, -5))
 	var stuck_seen: bool = false
 	for i in 400:  # 6.7 s without moving the pose
-		m.update(bb, 1.0 / 60.0)
+		m.update(bb)
 		bb.time += 1.0 / 60.0
 		if bb.stuck:
 			stuck_seen = true
@@ -2363,7 +2657,7 @@ func test_no_stuck_flag_while_progressing() -> void:
 	m.path_provider = _straight
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(0, 0, -20))
 	for i in 300:
-		var cmd: Vector2 = m.update(bb, 1.0 / 60.0)
+		var cmd: Vector2 = m.update(bb)
 		assert_bool(bb.stuck).is_false()
 		_step(bb, cmd, 1.0 / 60.0)
 
@@ -2375,14 +2669,14 @@ func test_bumper_triggers_reverse_recovery() -> void:
 	bb.bumper_enabled = true
 	bb.bumper_hit = true
 	bb.bumper_normal = Vector3(0, 0, 1)  # wall ahead pushes us back (+Z)
-	var cmd: Vector2 = m.update(bb, 1.0 / 60.0)
+	var cmd: Vector2 = m.update(bb)
 	assert_float(cmd.x).is_less(0.0)
 	bb.bumper_hit = false
 	bb.time += 0.3
-	cmd = m.update(bb, 1.0 / 60.0)
+	cmd = m.update(bb)
 	assert_float(cmd.x).is_less(0.0)  # still recovering
 	bb.time += 1.0
-	cmd = m.update(bb, 1.0 / 60.0)
+	cmd = m.update(bb)
 	assert_float(cmd.x).is_greater(0.0)  # recovery over
 
 
@@ -2390,10 +2684,10 @@ func test_ultrasonic_slows_forward_speed() -> void:
 	var m := Motion.new()
 	m.path_provider = _straight
 	var bb := _bb(Vector3.ZERO, 0.0, Vector3(0, 0, -5))
-	var fast: Vector2 = m.update(bb, 1.0 / 60.0)
+	var fast: Vector2 = m.update(bb)
 	bb.ultrasonic_enabled = true
 	bb.ultrasonic = PackedFloat32Array([0.3, 1.2, 1.2])
-	var slow: Vector2 = m.update(bb, 1.0 / 60.0)
+	var slow: Vector2 = m.update(bb)
 	assert_float(slow.x).is_less(fast.x * 0.5)
 
 
@@ -2407,7 +2701,7 @@ func test_lidar_obstacle_ahead_causes_turn() -> void:
 		var a: float = wrapf(TAU * i / 36, -PI, PI)
 		bb.lidar_angles.append(a)
 		bb.lidar_ranges.append(1.0 if absf(a) < deg_to_rad(25) else 8.0)
-	var cmd: Vector2 = m.update(bb, 1.0 / 60.0)
+	var cmd: Vector2 = m.update(bb)
 	assert_float(absf(cmd.y)).is_greater(0.5)
 ```
 
@@ -2435,6 +2729,7 @@ var stuck_window: float = 4.0
 var stuck_progress: float = 0.3
 var recovery_time: float = 0.8
 var ultrasonic_slow_dist: float = 0.6
+var avoid_dist: float = 1.5  # Steering.pick_heading proximity threshold (tuning knob)
 
 var path: PackedVector3Array = PackedVector3Array()
 var _idx: int = 0
@@ -2461,7 +2756,7 @@ func _replan(bb: Blackboard) -> void:
 	_last_replan = bb.time
 
 
-func update(bb: Blackboard, dt: float) -> Vector2:
+func update(bb: Blackboard) -> Vector2:
 	bb.goal_reached = false
 	if not bb.goal_active:
 		bb.stuck = false
@@ -2516,7 +2811,7 @@ func update(bb: Blackboard, dt: float) -> Vector2:
 	var heading: float = target_angle
 	var front: float = INF
 	if bb.lidar_enabled and bb.lidar_ranges.size() > 0:
-		heading = Steering.pick_heading(target_angle, bb.lidar_ranges, bb.lidar_angles, bb.lidar_max_range)
+		heading = Steering.pick_heading(target_angle, bb.lidar_ranges, bb.lidar_angles, bb.lidar_max_range, avoid_dist)
 		front = bb.min_range_in_arc(0.0, deg_to_rad(20.0))
 		if front >= bb.lidar_max_range - 1e-3:
 			front = INF
@@ -2552,8 +2847,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces:
-  - `class_name FSMState extends RefCounted`: `var name: String`, `func enter(bb: Blackboard) -> void`, `func update(bb: Blackboard, dt: float) -> String` (return `""` to stay, otherwise next state name), `func exit(bb: Blackboard) -> void`.
-  - `class_name FSM extends RefCounted`: `func add(state: FSMState) -> void`, `func start(name: String, bb: Blackboard) -> void`, `func update(bb: Blackboard, dt: float) -> void`, `func current_name() -> String`, `var transitions: Array[Dictionary]` `{time, from, to}`, `var transition_counts: Dictionary` `"From->To"` → int, `func force(name: String, bb: Blackboard) -> void`.
+  - `class_name FSMState extends RefCounted`: `var name: String`, `var reason: String = ""` (a state sets it just before returning a transition), `func enter(bb: Blackboard) -> void`, `func update(bb: Blackboard, dt: float) -> String` (return `""` to stay, otherwise next state name), `func exit(bb: Blackboard) -> void`.
+  - `class_name FSM extends RefCounted`: `func add(state: FSMState) -> void`, `func start(name: String, bb: Blackboard) -> void`, `func update(bb: Blackboard, dt: float) -> void` (logs the state's `reason` with the transition and clears it), `func current_name() -> String`, `var transitions: Array[Dictionary]` `{time, from, to, reason}`, `var transition_counts: Dictionary` `"From->To"` → int, `func force(name: String, bb: Blackboard) -> void` (test seam; logs reason `"forced"`).
   - On every transition, `bb.state_name` is set to the new state name.
 
 - [ ] **Step 1: Write failing tests**
@@ -2583,6 +2878,7 @@ class Counter extends FSMState:
 	func update(_bb: Blackboard, _dt: float) -> String:
 		ticks += 1
 		if go_to != "" and ticks >= after:
+			reason = "after %d ticks" % after
 			return go_to
 		return ""
 
@@ -2619,6 +2915,8 @@ func test_transition_calls_exit_enter_and_logs() -> void:
 	assert_str(fsm.transitions[0]["from"]).is_equal("A")
 	assert_str(fsm.transitions[0]["to"]).is_equal("B")
 	assert_float(fsm.transitions[0]["time"]).is_equal_approx(0.2, 1e-6)
+	assert_str(fsm.transitions[0]["reason"]).is_equal("after 3 ticks")
+	assert_str(a.reason).is_empty()  # cleared after logging
 	assert_int(fsm.transition_counts["A->B"]).is_equal(1)
 
 
@@ -2643,6 +2941,7 @@ func test_force_transition() -> void:
 	fsm.force("B", bb)
 	assert_str(fsm.current_name()).is_equal("B")
 	assert_int(fsm.transitions.size()).is_equal(1)
+	assert_str(fsm.transitions[0]["reason"]).is_equal("forced")
 ```
 
 - [ ] **Step 2: Run, expect failure**
@@ -2657,13 +2956,16 @@ class_name FSMState
 extends RefCounted
 
 var name: String = ""
+## Why the next transition happens; set just before returning a state name from update().
+## FSM logs it with the transition and clears it.
+var reason: String = ""
 
 
 func enter(_bb: Blackboard) -> void:
 	pass
 
 
-## Return "" to stay, or the name of the next state.
+## Return "" to stay, or the name of the next state (set `reason` first).
 func update(_bb: Blackboard, _dt: float) -> String:
 	return ""
 
@@ -2702,22 +3004,26 @@ func current_name() -> String:
 func update(bb: Blackboard, dt: float) -> void:
 	if current == null:
 		return
-	var next: String = current.update(bb, dt)
-	if next != "" and next != current.name:
-		_transition(next, bb)
+	var state: FSMState = current
+	var next: String = state.update(bb, dt)
+	var why: String = state.reason
+	state.reason = ""
+	if next != "" and next != state.name:
+		_transition(next, bb, why)
 
 
+## Test seam (e.g. Task 16 forces the seeker into Chase).
 func force(name: String, bb: Blackboard) -> void:
 	if current == null or name == current.name:
 		return
-	_transition(name, bb)
+	_transition(name, bb, "forced")
 
 
-func _transition(to: String, bb: Blackboard) -> void:
+func _transition(to: String, bb: Blackboard, why: String) -> void:
 	assert(states.has(to), "unknown state %s" % to)
 	var from: String = current.name
 	current.exit(bb)
-	transitions.append({"time": bb.time, "from": from, "to": to})
+	transitions.append({"time": bb.time, "from": from, "to": to, "reason": why})
 	var key: String = "%s->%s" % [from, to]
 	transition_counts[key] = int(transition_counts.get(key, 0)) + 1
 	current = states[to]
@@ -2747,7 +3053,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `Arena.bounds()`, `Arena.wall_rects()`, an injected line-of-sight `Callable (a: Vector3, b: Vector3) -> bool` (true = clear).
 - Produces: `class_name VisibilityGrid extends RefCounted`
-  - `var cell_size: float = 2.0`, `var centers: Array[Vector3]`, `var openness: PackedFloat32Array` (0..1), `var visible_from_spawn: Array[bool]`, `var last_viewed: PackedFloat32Array`
+  - `var cell_size: float = 2.0`, `var centers: Array[Vector3]`, `var openness: PackedFloat32Array` (0..1), `var visible_from_spawn: Array[bool]`, `var last_viewed: PackedFloat32Array`, `var wall_rects: Array[Rect2]` (the walls passed to `build`; read by `RobotBrain` for `LidarBlobs.off_walls`)
   - `func build(bounds: Rect2, walls: Array[Rect2], seeker_spawn: Vector3, los: Callable, open_range: float = 4.0, ray_count: int = 16) -> void`
   - `func mark_viewed(pos: Vector3, yaw: float, fov: float, range: float, now: float, los: Callable) -> int` (returns number of cells marked)
   - `func pick_patrol_target(from: Vector3, now: float) -> Vector3`
@@ -2780,7 +3086,10 @@ func _grid() -> VisibilityGrid:
 
 func test_cells_avoid_walls_and_cover_bounds() -> void:
 	var g := _grid()
-	assert_int(g.centers.size()).is_greater_equal(60)
+	assert_int(g.centers.size()).is_equal(100)  # 10 x 10; the wall (grown 0.5 m) covers no centre
+	assert_bool(g.centers.has(Vector3(9, 0, 9))).is_true()  # far +X/+Z corner cell exists
+	assert_bool(g.centers.has(Vector3(-9, 0, -9))).is_true()
+	assert_int(g.wall_rects.size()).is_equal(1)
 	for c in g.centers:
 		assert_bool(WALL.grow(0.5).has_point(Vector2(c.x, c.z))).is_false()
 		assert_bool(BOUNDS.has_point(Vector2(c.x, c.z))).is_true()
@@ -2859,6 +3168,7 @@ var centers: Array[Vector3] = []
 var openness: PackedFloat32Array = PackedFloat32Array()
 var visible_from_spawn: Array[bool] = []
 var last_viewed: PackedFloat32Array = PackedFloat32Array()
+var wall_rects: Array[Rect2] = []  # static walls given to build(); used to drop wall-end lidar blobs
 
 const NEVER: float = -1000.0
 
@@ -2869,7 +3179,10 @@ func build(bounds: Rect2, walls: Array[Rect2], seeker_spawn: Vector3, los: Calla
 	openness = PackedFloat32Array()
 	visible_from_spawn.clear()
 	last_viewed = PackedFloat32Array()
-	var inner: Rect2 = bounds.grow(-cell_size * 0.5)
+	wall_rects = walls.duplicate()
+	# Grown by 1 mm so cells centred exactly on the far edge count: Rect2.has_point excludes
+	# the end edge, which would drop the whole +X column and +Z row.
+	var inner: Rect2 = bounds.grow(-cell_size * 0.5).grow(0.001)
 	var nx: int = int(floor(bounds.size.x / cell_size))
 	var nz: int = int(floor(bounds.size.y / cell_size))
 	for ix in nx:
@@ -2996,12 +3309,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/unit/seeker_states_test.gd`
 
 **Interfaces:**
-- Consumes: `FSM`, `FSMState`, `Blackboard`, `VisibilityGrid`.
+- Consumes: `FSM`, `FSMState` (incl. `reason`), `Blackboard`, `VisibilityGrid`.
 - Produces: `class_name SeekerStates` (file holds the context class and all seeker state classes as inner classes, plus a factory):
-  - `class SeekerStates.Context extends RefCounted`: `grid: VisibilityGrid`, `los: Callable`, `tag_range: float = 1.5`, `lose_timeout: float = 3.0`, `investigate_timeout: float = 8.0`, `catch_delay: float = 0.5`, `fov: float = deg_to_rad(90)`, `vision_range: float = 10.0`, `local_mark_radius: float = 2.5`, `last_investigated_pos: Vector3`, `last_investigated_time: float = -INF`, `investigate_cooldown: float = 10.0`
-  - `static func build(ctx: Context) -> FSM` with states named exactly `"Wait"`, `"Patrol"`, `"Investigate"`, `"Chase"`, `"Catch"`; FSM not yet started.
-  - Catch request protocol: in `Chase`, when a target is within `tag_range`, set `bb.catch_request` to the hider id (vision) or `-1` (blob-only, meaning "any hider in range") and transition to `Catch`. `Catch.exit` resets `bb.catch_request = 0`.
-  - Blob world position helper: `static func blob_world_pos(bb: Blackboard, blob: Dictionary) -> Vector3`.
+  - `class SeekerStates.Context extends RefCounted`: `grid: VisibilityGrid`, `los: Callable`, `tag_range: float = 1.5`, `lose_timeout: float = 3.0`, `investigate_timeout: float = 8.0`, `catch_delay: float = 0.5`, `fov: float = deg_to_rad(90)`, `vision_range: float = 10.0`, `local_mark_radius: float = 2.5`, `last_investigated_pos: Vector3`, `last_investigated_time: float = -INF`, `investigate_cooldown: float = 10.0`, `chase_blob_dist: float = 3.0`, `chase_last_pos: Vector3`, `chase_last_seen: float = -INF`, `dud_pos: Vector3`, `dud_time: float = -INF`
+  - `static func build(ctx: Context) -> FSM` with states named exactly `"Wait"`, `"Patrol"`, `"Investigate"`, `"Chase"`, `"Catch"`; FSM not yet started. Every state sets `reason` before returning a transition.
+  - Catch request protocol: in `Chase`, when the target's horizontal distance is `< tag_range`, set `bb.catch_request` to the hider id (vision) or `-1` (blob-only, meaning "any hider in range") and transition to `Catch`. `Catch.exit` resets `bb.catch_request = 0`; if a `-1` request caught nobody (no new entry in `bb.caught_ids`), the chased blob position becomes a dud (`dud_pos`/`dud_time`) that blob filters ignore for `investigate_cooldown` s, so a prop or wall end cannot trap the blind seeker in a Patrol → Chase → Catch loop.
+  - Blind fallback (spec §4, L95-97): when `not bb.vision_enabled` and the nearest interesting blob (investigate cooldown ignored) is within `chase_blob_dist`, Patrol and Investigate go straight to `Chase`; Chase then tracks that blob and requests `-1` in tag range. Farther blobs still send Patrol to `Investigate`.
+  - Chase loses its target after `lose_timeout` s unseen → `Patrol` (spec L110-113).
+  - Helpers: `static func blob_world_pos(bb: Blackboard, blob: Dictionary) -> Vector3`, `static func interesting_blob(bb: Blackboard, ctx: Context, respect_cooldown: bool = true) -> Dictionary`, `static func near_blob_without_vision(bb: Blackboard, ctx: Context) -> bool`.
+  - Requires (Task 16): when the GameManager catches a hider it also writes `seeker.bb.last_known[id]`, so the caught-hider blob filter works for a seeker without vision.
 
 - [ ] **Step 1: Add `seeking_allowed` to the blackboard**
 
@@ -3070,6 +3386,7 @@ func test_wait_to_patrol_when_seeking_allowed() -> void:
 	bb.seeking_allowed = true
 	_tick(fsm, bb, 0.1)
 	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("head start over")
 
 
 func test_patrol_sets_goal_and_repicks_when_reached() -> void:
@@ -3080,6 +3397,16 @@ func test_patrol_sets_goal_and_repicks_when_reached() -> void:
 	bb.position = first
 	bb.goal_reached = true
 	_tick(fsm, bb, 0.1)
+	assert_bool(bb.goal_pos.distance_to(first) > 1.0).is_true()
+
+
+func test_patrol_repicks_goal_when_stuck() -> void:
+	var bb := _bb()
+	var fsm := _start(_ctx(), bb, "Patrol")
+	var first: Vector3 = bb.goal_pos
+	bb.stuck = true
+	_tick(fsm, bb, 1.0 / 60.0)  # one tick
+	assert_str(fsm.current_name()).is_equal("Patrol")
 	assert_bool(bb.goal_pos.distance_to(first) > 1.0).is_true()
 
 
@@ -3096,10 +3423,29 @@ func test_patrol_to_investigate_on_blob() -> void:
 	var bb := _bb()
 	bb.vision_enabled = false
 	var fsm := _start(_ctx(), bb, "Patrol")
-	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.5, "time": bb.time}]
+	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.3}]  # beyond chase_blob_dist (3 m)
 	_tick(fsm, bb, 0.1)
 	assert_str(fsm.current_name()).is_equal("Investigate")
 	assert_float(bb.goal_pos.distance_to(Vector3(0, 0, -4))).is_less(0.1)
+
+
+func test_patrol_to_chase_on_near_blob_without_vision() -> void:
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(_ctx(), bb, "Patrol")
+	bb.blobs = [{"angle": 0.0, "distance": 2.0, "width": 0.3}]  # within chase_blob_dist (3 m)
+	_tick(fsm, bb, 0.1)
+	assert_str(fsm.current_name()).is_equal("Chase")
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("near blob, no vision")
+	assert_float(bb.goal_pos.distance_to(Vector3(0, 0, -2))).is_less(0.1)
+
+
+func test_patrol_with_vision_investigates_near_blob() -> void:
+	var bb := _bb()  # vision on: a blob alone is never a detection
+	var fsm := _start(_ctx(), bb, "Patrol")
+	bb.blobs = [{"angle": 0.0, "distance": 2.0, "width": 0.3}]
+	_tick(fsm, bb, 0.1)
+	assert_str(fsm.current_name()).is_equal("Investigate")
 
 
 func test_patrol_ignores_blob_near_caught_hider() -> void:
@@ -3107,7 +3453,7 @@ func test_patrol_ignores_blob_near_caught_hider() -> void:
 	bb.caught_ids = [7]
 	bb.last_known[7] = {"position": Vector3(0, 0, -4), "time": 0.0, "role": "hider"}
 	var fsm := _start(_ctx(), bb, "Patrol")
-	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.5, "time": bb.time}]
+	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.3}]
 	_tick(fsm, bb, 0.1)
 	assert_str(fsm.current_name()).is_equal("Patrol")
 
@@ -3119,6 +3465,34 @@ func test_investigate_to_patrol_on_timeout() -> void:
 	var fsm := _start(ctx, bb, "Investigate")
 	_tick(fsm, bb, ctx.investigate_timeout + 0.2)
 	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("timeout")
+
+
+func test_investigate_to_patrol_after_arrival_dwell() -> void:
+	var ctx := _ctx()
+	var bb := _bb()
+	ctx.last_investigated_pos = Vector3(0, 0, -4)
+	var fsm := _start(ctx, bb, "Investigate")
+	bb.position = Vector3(0, 0, -4)
+	bb.goal_reached = true
+	_tick(fsm, bb, 1.0)
+	assert_str(fsm.current_name()).is_equal("Investigate")  # still dwelling (1.5 s)
+	_tick(fsm, bb, 1.0)
+	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("nothing found")
+
+
+func test_investigate_to_patrol_when_stuck() -> void:
+	var ctx := _ctx()
+	var bb := _bb()
+	ctx.last_investigated_pos = Vector3(0, 0, -4)
+	var fsm := _start(ctx, bb, "Investigate")
+	_tick(fsm, bb, 0.5)
+	assert_str(fsm.current_name()).is_equal("Investigate")
+	bb.stuck = true
+	_tick(fsm, bb, 1.0 / 60.0)  # one tick
+	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("stuck")
 
 
 func test_investigate_to_chase_on_seen() -> void:
@@ -3127,6 +3501,22 @@ func test_investigate_to_chase_on_seen() -> void:
 	bb.seen_robots = [_seen(42, Vector3(2, 0, -3), bb)]
 	_tick(fsm, bb, 0.1)
 	assert_str(fsm.current_name()).is_equal("Chase")
+
+
+func test_investigate_to_chase_on_near_blob_without_vision() -> void:
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(_ctx(), bb, "Patrol")
+	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.3}]
+	_tick(fsm, bb, 0.1)
+	assert_str(fsm.current_name()).is_equal("Investigate")
+	# The seeker closed in on the same blob (world (0, 0, -4)); it is now inside
+	# chase_blob_dist. The investigate cooldown must not hide it from the chase check.
+	bb.position = Vector3(0, 0, -1.5)
+	bb.blobs = [{"angle": 0.0, "distance": 2.5, "width": 0.3}]
+	_tick(fsm, bb, 0.1)
+	assert_str(fsm.current_name()).is_equal("Chase")
+	assert_float(bb.goal_pos.distance_to(Vector3(0, 0, -4))).is_less(0.1)
 
 
 func test_chase_follows_and_catches_in_range() -> void:
@@ -3143,7 +3533,7 @@ func test_chase_follows_and_catches_in_range() -> void:
 	assert_int(bb.catch_request).is_equal(42)
 
 
-func test_chase_to_investigate_after_lose_timeout() -> void:
+func test_chase_to_patrol_after_lose_timeout() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
 	var fsm := _start(ctx, bb, "Chase")
@@ -3153,8 +3543,9 @@ func test_chase_to_investigate_after_lose_timeout() -> void:
 	_tick(fsm, bb, ctx.lose_timeout - 0.5)
 	assert_str(fsm.current_name()).is_equal("Chase")
 	_tick(fsm, bb, 1.0)
-	assert_str(fsm.current_name()).is_equal("Investigate")
-	assert_float(bb.goal_pos.distance_to(Vector3(0, 0, -3))).is_less(0.01)
+	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_int(fsm.transition_counts.get("Chase->Patrol", 0)).is_equal(1)
+	assert_str(fsm.transitions[-1]["reason"]).is_equal("target lost")
 
 
 func test_catch_to_patrol_after_delay_and_clears_request() -> void:
@@ -3173,10 +3564,26 @@ func test_chase_without_vision_uses_blobs() -> void:
 	var bb := _bb()
 	bb.vision_enabled = false
 	var fsm := _start(ctx, bb, "Chase")
-	bb.blobs = [{"angle": 0.0, "distance": 1.0, "width": 0.5, "time": bb.time}]
+	bb.blobs = [{"angle": 0.0, "distance": 1.0, "width": 0.3}]
 	_tick(fsm, bb, 0.05)
 	assert_str(fsm.current_name()).is_equal("Catch")
 	assert_int(bb.catch_request).is_equal(-1)
+
+
+func test_failed_blind_catch_marks_blob_as_dud() -> void:
+	var ctx := _ctx()
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(ctx, bb, "Chase")
+	bb.blobs = [{"angle": 0.0, "distance": 1.0, "width": 0.3}]
+	_tick(fsm, bb, 0.05)
+	assert_str(fsm.current_name()).is_equal("Catch")
+	# Nobody appended to caught_ids during Catch: the blob was a prop or a wall end.
+	_tick(fsm, bb, ctx.catch_delay + 0.1)
+	assert_str(fsm.current_name()).is_equal("Patrol")
+	assert_float(ctx.dud_pos.distance_to(Vector3(0, 0, -1))).is_less(0.01)
+	_tick(fsm, bb, 1.0)  # the same blob is still in view but ignored: no Chase/Catch loop
+	assert_str(fsm.current_name()).is_equal("Patrol")
 
 
 func test_chase_with_no_target_and_nothing_known_goes_to_patrol() -> void:
@@ -3195,7 +3602,8 @@ func test_chase_with_no_target_and_nothing_known_goes_to_patrol() -> void:
 
 ```gdscript
 ## Seeker decision logic: Wait -> Patrol <-> Investigate / Chase -> Catch -> Patrol.
-## All states read only the Blackboard and the shared Context.
+## All states read only the Blackboard and the shared Context. Every transition
+## sets `reason`, which FSM logs with the round time.
 class_name SeekerStates
 extends RefCounted
 
@@ -3213,18 +3621,25 @@ class Context extends RefCounted:
 	var last_investigated_pos: Vector3 = Vector3.ZERO
 	var last_investigated_time: float = -INF
 	var investigate_cooldown: float = 10.0
+	## Without vision, a blob this close counts as a detection: Patrol/Investigate -> Chase.
+	var chase_blob_dist: float = 3.0
 	# chase memory
-	var chase_target_id: int = 0
 	var chase_last_pos: Vector3 = Vector3.ZERO
 	var chase_last_seen: float = -INF
+	# blob-only catch that caught nobody (prop or wall end); ignored for investigate_cooldown
+	var dud_pos: Vector3 = Vector3.ZERO
+	var dud_time: float = -INF
 
 
 static func blob_world_pos(bb: Blackboard, blob: Dictionary) -> Vector3:
 	return bb.position + bb.local_to_world_dir(blob["angle"]) * blob["distance"]
 
 
-## A blob worth investigating: not where a caught hider sits, not recently investigated.
-static func interesting_blob(bb: Blackboard, ctx: Context) -> Dictionary:
+## Nearest blob worth reacting to: not where a caught hider sits, not a recent dud and,
+## when respect_cooldown, not the spot investigated within investigate_cooldown.
+## Chase decisions pass respect_cooldown = false so the blob being investigated can
+## still be chased once the seeker is close to it.
+static func interesting_blob(bb: Blackboard, ctx: Context, respect_cooldown: bool = true) -> Dictionary:
 	var best: Dictionary = {}
 	var best_d: float = INF
 	for blob in bb.blobs:
@@ -3236,12 +3651,23 @@ static func interesting_blob(bb: Blackboard, ctx: Context) -> Dictionary:
 				break
 		if skip:
 			continue
-		if bb.time - ctx.last_investigated_time < ctx.investigate_cooldown and p.distance_to(ctx.last_investigated_pos) < 2.0:
+		if bb.time - ctx.dud_time < ctx.investigate_cooldown and p.distance_to(ctx.dud_pos) < 1.0:
+			continue
+		if respect_cooldown and bb.time - ctx.last_investigated_time < ctx.investigate_cooldown \
+				and p.distance_to(ctx.last_investigated_pos) < 2.0:
 			continue
 		if blob["distance"] < best_d:
 			best_d = blob["distance"]
 			best = blob
 	return best
+
+
+## Blind fallback (spec section 4): without vision, a blob within chase_blob_dist is a detection.
+static func near_blob_without_vision(bb: Blackboard, ctx: Context) -> bool:
+	if bb.vision_enabled:
+		return false
+	var blob: Dictionary = interesting_blob(bb, ctx, false)
+	return not blob.is_empty() and blob["distance"] <= ctx.chase_blob_dist
 
 
 static func nearest_seen_hider(bb: Blackboard) -> Dictionary:
@@ -3268,7 +3694,10 @@ class Wait extends FSMState:
 		bb.goal_active = false
 
 	func update(bb: Blackboard, _dt: float) -> String:
-		return "Patrol" if bb.seeking_allowed else ""
+		if bb.seeking_allowed:
+			reason = "head start over"
+			return "Patrol"
+		return ""
 
 
 class Patrol extends FSMState:
@@ -3288,8 +3717,13 @@ class Patrol extends FSMState:
 	func update(bb: Blackboard, _dt: float) -> String:
 		SeekerStates.mark_viewed(bb, ctx)
 		if not SeekerStates.nearest_seen_hider(bb).is_empty():
+			reason = "hider seen"
+			return "Chase"
+		if SeekerStates.near_blob_without_vision(bb, ctx):
+			reason = "near blob, no vision"
 			return "Chase"
 		if not SeekerStates.interesting_blob(bb, ctx).is_empty():
+			reason = "lidar blob"
 			return "Investigate"
 		if bb.goal_reached or bb.stuck:
 			_pick(bb)
@@ -3324,13 +3758,22 @@ class Investigate extends FSMState:
 	func update(bb: Blackboard, _dt: float) -> String:
 		SeekerStates.mark_viewed(bb, ctx)
 		if not SeekerStates.nearest_seen_hider(bb).is_empty():
+			reason = "hider seen"
 			return "Chase"
-		if bb.time - _started > ctx.investigate_timeout or bb.stuck:
+		if SeekerStates.near_blob_without_vision(bb, ctx):
+			reason = "near blob, no vision"
+			return "Chase"
+		if bb.time - _started > ctx.investigate_timeout:
+			reason = "timeout"
+			return "Patrol"
+		if bb.stuck:
+			reason = "stuck"
 			return "Patrol"
 		if bb.goal_reached:
 			if _arrived_at < 0.0:
 				_arrived_at = bb.time
 			elif bb.time - _arrived_at > 1.5:
+				reason = "nothing found"
 				return "Patrol"
 		return ""
 
@@ -3348,41 +3791,45 @@ class Chase extends FSMState:
 		ctx.chase_last_seen = -INF
 		bb.goal_active = true
 
+	## Shared pursuit step for a seen hider (request = its id) or, without vision, a
+	## blob (request = -1): remember it, steer at it, request a catch inside tag range.
+	func _pursue(bb: Blackboard, target_pos: Vector3, request: int) -> String:
+		ctx.chase_last_pos = target_pos
+		ctx.chase_last_seen = bb.time
+		bb.goal_pos = target_pos
+		bb.goal_active = true
+		var d: float = Vector2(bb.position.x, bb.position.z).distance_to(Vector2(target_pos.x, target_pos.z))
+		if d < ctx.tag_range:
+			bb.catch_request = request
+			reason = "in tag range"
+			return "Catch"
+		return ""
+
 	func update(bb: Blackboard, _dt: float) -> String:
 		SeekerStates.mark_viewed(bb, ctx)
 		var target: Dictionary = SeekerStates.nearest_seen_hider(bb)
 		if not target.is_empty():
-			ctx.chase_target_id = target["id"]
-			ctx.chase_last_pos = target["position"]
-			ctx.chase_last_seen = bb.time
-			bb.goal_pos = target["position"]
-			bb.goal_active = true
-			if target["distance"] <= ctx.tag_range:
-				bb.catch_request = target["id"]
-				return "Catch"
-			return ""
+			return _pursue(bb, target["position"], target["id"])
 		if not bb.vision_enabled:
-			var blob: Dictionary = SeekerStates.interesting_blob(bb, ctx)
+			var blob: Dictionary = SeekerStates.interesting_blob(bb, ctx, false)
 			if not blob.is_empty():
-				ctx.chase_last_pos = SeekerStates.blob_world_pos(bb, blob)
-				ctx.chase_last_seen = bb.time
-				bb.goal_pos = ctx.chase_last_pos
-				bb.goal_active = true
-				if blob["distance"] <= ctx.tag_range:
-					bb.catch_request = -1
-					return "Catch"
-				return ""
-		# Target lost (or never acquired in this Chase).
+				return _pursue(bb, SeekerStates.blob_world_pos(bb, blob), -1)
+		# Target lost (or never acquired in this Chase): back to Patrol (spec).
 		if ctx.chase_last_seen == -INF:
-			return "Patrol" if bb.time - _entered > ctx.lose_timeout else ""
+			if bb.time - _entered > ctx.lose_timeout:
+				reason = "nothing to chase"
+				return "Patrol"
+			return ""
 		if bb.time - ctx.chase_last_seen > ctx.lose_timeout:
-			return "Investigate"
+			reason = "target lost"
+			return "Patrol"
 		return ""
 
 
 class Catch extends FSMState:
 	var ctx: Context
 	var _entered: float = 0.0
+	var _caught_before: int = 0
 
 	func _init(c: Context) -> void:
 		name = "Catch"
@@ -3390,12 +3837,20 @@ class Catch extends FSMState:
 
 	func enter(bb: Blackboard) -> void:
 		_entered = bb.time
+		_caught_before = bb.caught_ids.size()
 		bb.goal_active = false
 
 	func update(bb: Blackboard, _dt: float) -> String:
-		return "Patrol" if bb.time - _entered >= ctx.catch_delay else ""
+		if bb.time - _entered >= ctx.catch_delay:
+			reason = "catch done"
+			return "Patrol"
+		return ""
 
 	func exit(bb: Blackboard) -> void:
+		if bb.catch_request == -1 and bb.caught_ids.size() == _caught_before:
+			# Blind catch found no hider: the blob was a prop or a wall end. Ignore it for a while.
+			ctx.dud_pos = ctx.chase_last_pos
+			ctx.dud_time = bb.time
 		bb.catch_request = 0
 
 
@@ -3432,10 +3887,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces:
-  - `class_name HiderStrategy extends RefCounted`: `var strategy_name: String`, `func pick_spot(bb: Blackboard, ctx: HiderStates.Context) -> Vector3`, `func wants_relocate(bb: Blackboard, ctx: HiderStates.Context) -> bool`, `static func create(name: String) -> HiderStrategy` (`"static"` → `StaticHider`, `"dynamic"` → `DynamicHider`).
+  - `class_name HiderStrategy extends RefCounted`: `var kind: String` (`"static"` / `"dynamic"`), `func pick_spot(bb: Blackboard, ctx: HiderStates.Context) -> Vector3`, `func wants_relocate(bb: Blackboard, ctx: HiderStates.Context) -> bool`, `static func create(kind: String) -> HiderStrategy` (`"static"` → `StaticHider`, `"dynamic"` → `DynamicHider`).
   - Inner classes `HiderStrategy.StaticHider`, `HiderStrategy.DynamicHider` (`relocate_period: float = 20.0`).
-  - `class_name HiderStates`: `class Context`: `grid`, `los`, `seeker_spawn: Vector3`, `strategy: HiderStrategy`, `flee_clear_timeout: float = 4.0`, `threat_blob_dist: float = 4.0`, `min_hide_dist: float = 8.0`, `last_relocate_time: float = 0.0`, `flee_refresh: float = 1.0`.
-  - `static func build(ctx: Context) -> FSM` with states `"PickSpot"`, `"GoToSpot"`, `"Hide"`, `"Flee"`, `"Relocate"`.
+  - `class_name HiderStates`: `class Context`: `grid`, `seeker_spawn: Vector3`, `strategy: HiderStrategy`, `flee_clear_timeout: float = 4.0`, `threat_blob_dist: float = 4.0`, `min_hide_dist: float = 8.0`, `last_relocate_time: float = 0.0`, `flee_refresh: float = 1.0`.
+  - `static func build(ctx: Context) -> FSM` with states `"PickSpot"`, `"GoToSpot"`, `"Hide"`, `"Flee"`, `"Relocate"`. Every state sets `reason` (Task 11) before returning a transition.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -3457,7 +3912,6 @@ func _ctx(strategy: String = "static") -> HiderStates.Context:
 	ctx.grid = VisibilityGrid.new()
 	ctx.seeker_spawn = Vector3(-7, 0, 0)
 	ctx.grid.build(BOUNDS, [WALL], ctx.seeker_spawn, _los)
-	ctx.los = _los
 	ctx.strategy = HiderStrategy.create(strategy)
 	return ctx
 
@@ -3548,7 +4002,7 @@ func test_hide_to_relocate_on_approaching_blob() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
 	var fsm := _start(ctx, bb, "Hide")
-	bb.blobs = [{"angle": 0.0, "distance": ctx.threat_blob_dist - 0.5, "width": 0.5, "time": bb.time}]
+	bb.blobs = [{"angle": 0.0, "distance": ctx.threat_blob_dist - 0.5, "width": 0.3}]
 	_tick(fsm, bb, 0.05)
 	assert_str(fsm.current_name()).is_equal("GoToSpot")
 	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(1)
@@ -3566,6 +4020,23 @@ func test_flee_to_pickspot_after_seeker_unseen_timeout() -> void:
 	_tick(fsm, bb, 1.0)
 	assert_str(fsm.current_name()).is_equal("GoToSpot")
 	assert_int(fsm.transition_counts.get("Flee->PickSpot", 0)).is_equal(1)
+
+
+func test_flee_refreshes_goal_while_seeker_still_seen() -> void:
+	var ctx := _ctx()
+	var bb := _bb(Vector3(3, 0, 0))
+	var threat := Vector3(1, 0, 0)
+	_seeker_seen(bb, threat)
+	var fsm := _start(ctx, bb, "Flee")
+	var first: Vector3 = bb.goal_pos
+	# The hider reached its flee spot and the seeker is still in view: after
+	# flee_refresh seconds Flee must pick a new spot, farther from the threat.
+	bb.position = first
+	_seeker_seen(bb, threat)
+	_tick(fsm, bb, ctx.flee_refresh + 0.1)
+	assert_str(fsm.current_name()).is_equal("Flee")
+	assert_float(bb.goal_pos.distance_to(first)).is_greater(1.0)
+	assert_float(bb.goal_pos.distance_to(threat)).is_greater(first.distance_to(threat))
 
 
 func test_static_strategy_never_relocates_on_timer() -> void:
@@ -3593,9 +4064,9 @@ func test_dynamic_pick_spot_avoids_current_position() -> void:
 	assert_float(second.distance_to(first)).is_greater(1.5)
 
 
-func test_strategy_factory_names() -> void:
-	assert_str(HiderStrategy.create("static").strategy_name).is_equal("static")
-	assert_str(HiderStrategy.create("dynamic").strategy_name).is_equal("dynamic")
+func test_strategy_factory_kinds() -> void:
+	assert_str(HiderStrategy.create("static").kind).is_equal("static")
+	assert_str(HiderStrategy.create("dynamic").kind).is_equal("dynamic")
 ```
 
 - [ ] **Step 2: Run, expect failure**
@@ -3609,7 +4080,7 @@ func test_strategy_factory_names() -> void:
 class_name HiderStrategy
 extends RefCounted
 
-var strategy_name: String = "base"
+var kind: String = "base"
 
 
 static func create(kind: String) -> HiderStrategy:
@@ -3635,7 +4106,7 @@ func wants_relocate(_bb: Blackboard, _ctx: HiderStates.Context) -> bool:
 ## Picks the least visible spot far from the seeker's spawn and stays there.
 class StaticHider extends HiderStrategy:
 	func _init() -> void:
-		strategy_name = "static"
+		kind = "static"
 
 
 ## Periodically moves to a new spot far from the seeker's last known position.
@@ -3643,7 +4114,7 @@ class DynamicHider extends HiderStrategy:
 	var relocate_period: float = 20.0
 
 	func _init() -> void:
-		strategy_name = "dynamic"
+		kind = "dynamic"
 
 	func pick_spot(bb: Blackboard, ctx: HiderStates.Context) -> Vector3:
 		var threat: Vector3 = _threat(bb, ctx)
@@ -3668,7 +4139,6 @@ extends RefCounted
 
 class Context extends RefCounted:
 	var grid: VisibilityGrid
-	var los: Callable
 	var seeker_spawn: Vector3 = Vector3.ZERO
 	var strategy: HiderStrategy
 	var flee_clear_timeout: float = 4.0
@@ -3697,6 +4167,7 @@ class PickSpot extends FSMState:
 		bb.goal_active = true
 
 	func update(_bb: Blackboard, _dt: float) -> String:
+		reason = "spot chosen"
 		return "GoToSpot"
 
 
@@ -3706,10 +4177,13 @@ class GoToSpot extends FSMState:
 
 	func update(bb: Blackboard, _dt: float) -> String:
 		if not bb.seen_seeker().is_empty():
+			reason = "seeker seen"
 			return "Flee"
 		if bb.goal_reached:
+			reason = "arrived"
 			return "Hide"
 		if bb.stuck:
+			reason = "stuck"
 			return "PickSpot"
 		return ""
 
@@ -3726,10 +4200,13 @@ class Hide extends FSMState:
 
 	func update(bb: Blackboard, _dt: float) -> String:
 		if not bb.seen_seeker().is_empty():
+			reason = "seeker seen"
 			return "Flee"
 		if HiderStates.threat_blob(bb, ctx):
+			reason = "lidar blob near"
 			return "Relocate"
 		if ctx.strategy.wants_relocate(bb, ctx):
+			reason = "strategy relocate"
 			return "Relocate"
 		return ""
 
@@ -3753,6 +4230,7 @@ class Flee extends FSMState:
 
 	func update(bb: Blackboard, _dt: float) -> String:
 		if bb.time_since_seeker_seen() > ctx.flee_clear_timeout:
+			reason = "seeker unseen"
 			return "PickSpot"
 		if (not bb.seen_seeker().is_empty() and bb.time - _last_refresh > ctx.flee_refresh) or bb.goal_reached or bb.stuck:
 			_refresh(bb)
@@ -3772,6 +4250,7 @@ class Relocate extends FSMState:
 		bb.goal_active = true
 
 	func update(_bb: Blackboard, _dt: float) -> String:
+		reason = "new spot"
 		return "GoToSpot"
 
 
@@ -3803,22 +4282,22 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 15: Round config and robot brain wiring
 
 **Files:**
-- Create: `scripts/game/round_config.gd`, `scripts/robot/robot.gd`, `scripts/robot/fsm/goto_state.gd`, `tests/fixtures/nav_arena_helper.gd`
+- Create: `scripts/game/round_config.gd`, `scripts/robot/robot.gd`, `scripts/robot/fsm/goto_state.gd`
 - Modify: `scenes/robots/robot.tscn` (attach `robot.gd` to `Brain`)
 - Test: `tests/unit/round_config_test.gd`, `tests/scene/robot_brain_test.gd`
 
 **Interfaces:**
+- Consumes: `NavArenaHelper` (Task 4, `tests/helpers/nav_arena_helper.gd`: `ready_arena`, `spawn_robot`, `los_walls`), `PhysicsTestSuite` (Task 1), `NavService.find_path` (Task 4), `SensorBase.due` (Task 6), `Motion.update(bb)` / `Motion.avoid_dist` (Task 10), `DebugOverlay.draw(bb, vision)` (Task 9), `HiderStates.Context` without `los` and `HiderStrategy.kind` (Task 14), `LidarBlobs.off_walls` (Task 7), `VisibilityGrid.wall_rects` (Task 12).
 - Produces:
   - `class_name RoundConfig extends Resource` with exports: `variant_name: String = "default"`, `seed: int = 0`, `hider_count: int = 2`, `head_start: float = 15.0`, `round_time: float = 120.0`, `tag_range: float = 1.5`, `prop_count: int = 12`, `seeker_sensors: PackedStringArray = ["lidar", "vision", "ultrasonic", "bumper"]`, `hider_sensors: PackedStringArray = ["lidar", "vision", "ultrasonic", "bumper"]`, `hider_strategy: String = "static"`, `noise_std: float = 0.0`; `func has_sensor(role: String, sensor: String) -> bool`; `func sensors_label(role: String) -> String` (sensor names joined with `+`, e.g. `lidar+vision+ultrasonic+bumper`).
   - `class_name GoToState extends FSMState` (name `"GoTo"`): holds `target: Vector3`; `enter` sets the goal; never transitions. Used by tests and debugging.
   - `class_name RobotBrain extends Node` (script on `Brain`):
-    - `var bb: Blackboard`, `var fsm: FSM`, `var motion: Motion`, `var body: DriveBody`, `var active: bool = false`, `var caught: bool = false`, `var strategy_name: String = ""`, `var stuck_events: int = 0`
-    - `func setup(role: String, rng: RandomNumberGenerator, nav: NavService, grid: VisibilityGrid, los: Callable, config: RoundConfig, seeker_spawn: Vector3) -> void` wires sensors (enable flags + noise from config), builds the role FSM (seeker starts in `Wait`, hider in `PickSpot`), sets `motion.path_provider = nav.get_path`.
+    - `var bb: Blackboard`, `var fsm: FSM`, `var motion: Motion`, `var body: DriveBody`, `var active: bool = false`, `var caught: bool = false`, `var stuck_events: int = 0`
+    - `func setup(role: String, rng: RandomNumberGenerator, nav: NavService, grid: VisibilityGrid, los: Callable, config: RoundConfig, seeker_spawn: Vector3) -> void` wires sensors (enable flags + noise from config), builds the role FSM (seeker starts in `Wait`, hider in `PickSpot`; the strategy comes from `config.hider_strategy`), sets `motion.path_provider = nav.find_path`. `los` goes to the seeker context only.
     - `func setup_goto(nav: NavService, goal: Vector3) -> void` test/debug mode: all sensors on, FSM = single `GoTo` state.
     - `func set_caught() -> void`: stops, greys the chassis, `bb.state_name = "Caught"`.
     - `func stats() -> Dictionary` `{distance, collisions, stuck_events, transitions, transition_counts, state}`.
-    - Ticks in `_physics_process` only when `active`: time, pose, sensors, blobs, FSM, motion, drive, overlay.
-  - `tests/fixtures/nav_arena_helper.gd` (`class_name NavArenaHelper`): `static func ready_arena(suite: GdUnitTestSuite) -> Array` → `[runner, arena]` with navmesh baked and ready (shared by later scene tests).
+    - `_physics_process(dt)`: does nothing until set up (`fsm == null`; drive and sensor scene tests command the body directly). Once set up and `active == false` (frozen by a test, or the round is over) it calls `body.set_command(0.0, 0.0)` every tick, because `DriveBody` latches its last command. When `active`: time, pose, each sensor's `sense(bb)` only when `sensor.due(dt)`, blobs (typed `Array[Dictionary]`, empty when lidar is off; `LidarBlobs.off_walls` with `grid.wall_rects` removes wall ends), FSM, `motion.update(bb)`, drive, overlay.
 
 - [ ] **Step 1: Write failing round config tests**
 
@@ -3907,56 +4386,22 @@ func enter(bb: Blackboard) -> void:
 
 - [ ] **Step 4: Run config tests, expect pass**
 
-- [ ] **Step 5: Write the fixture helper and failing brain scene tests**
+- [ ] **Step 5: Write the failing brain scene tests**
 
-`tests/fixtures/nav_arena_helper.gd`:
-
-```gdscript
-## Shared setup for scene tests that need a baked, ready arena.
-class_name NavArenaHelper
-extends RefCounted
-
-const ARENA := preload("res://scenes/arena/arena.tscn")
-const ROBOT := preload("res://scenes/robots/robot.tscn")
-
-
-static func ready_arena(suite: GdUnitTestSuite) -> Array:
-	var runner: GdUnitSceneRunner = suite.scene_runner(ARENA.instantiate())
-	var arena: Arena = runner.scene()
-	arena.nav.bake(arena.static_root)
-	for i in 30:
-		await runner.simulate_frames(1)
-		if arena.nav.is_ready():
-			break
-	assert(arena.nav.is_ready(), "navmesh never became ready")
-	return [runner, arena]
-
-
-static func spawn_robot(arena: Arena, pos: Vector3, role: String) -> DriveBody:
-	var r: DriveBody = ROBOT.instantiate()
-	r.role = role
-	r.position = pos + Vector3(0, 0.3, 0)
-	arena.robots_root.add_child(r)
-	return r
-
-
-static func los_walls(arena: Arena) -> Callable:
-	return func(a: Vector3, b: Vector3) -> bool:
-		var q := PhysicsRayQueryParameters3D.create(a + Vector3(0, 0.3, 0), b + Vector3(0, 0.3, 0), 1)
-		return arena.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
-```
-
-`tests/scene/robot_brain_test.gd`:
+`tests/scene/robot_brain_test.gd` (uses `NavArenaHelper` from Task 4):
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const CRATE := preload("res://scenes/props/crate.tscn")
 
 
+func _xz(p: Vector3) -> Vector2:
+	return Vector2(p.x, p.z)
+
+
 func test_goto_reaches_goal_around_a_crate() -> void:
-	var r := await NavArenaHelper.ready_arena(self)
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	# Room SW, straight line along z = 8 from (-13, 8) to (-5, 8); a 1.5 x 1 m crate at (-9, 8)
 	# sits on the line, 2 m south of the z = 5 divider and north of the nook wall (z >= 10).
@@ -3967,22 +4412,16 @@ func test_goto_reaches_goal_around_a_crate() -> void:
 	var body := NavArenaHelper.spawn_robot(arena, Vector3(-13, 0, 8), "hider")
 	body.rotation.y = PI / 2  # face -X initially (away from goal) to exercise turning
 	var brain: RobotBrain = body.get_node("Brain")
-	await runner.simulate_frames(2)
+	await ticks(2)
 	brain.setup_goto(arena.nav, Vector3(-5, 0, 8))
 	brain.active = true
-	var reached: bool = false
-	for i in 20:  # up to 20 s
-		await runner.simulate_frames(60)
-		if brain.bb.goal_reached:
-			reached = true
-			break
+	var reached: bool = await ticks_until(func() -> bool: return brain.bb.goal_reached, 20 * 60)  # up to 20 s
 	assert_bool(reached).append_failure_message("final pos %s" % body.global_position).is_true()
 	assert_int(body.collision_count).is_less_equal(1)
 
 
 func test_hider_leaves_spawn_and_hides() -> void:
-	var r := await NavArenaHelper.ready_arena(self)
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	var grid := VisibilityGrid.new()
 	var los := NavArenaHelper.los_walls(arena)
@@ -3992,23 +4431,19 @@ func test_hider_leaves_spawn_and_hides() -> void:
 	var brain: RobotBrain = body.get_node("Brain")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1
-	await runner.simulate_frames(2)
+	await ticks(2)
 	brain.setup("hider", rng, arena.nav, grid, los, RoundConfig.new(), arena.seeker_spawn_point())
 	brain.active = true
-	await runner.simulate_frames(60)
+	await ticks(60)
 	assert_str(brain.fsm.current_name()).is_equal("GoToSpot")
-	for i in 30:
-		await runner.simulate_frames(60)
-		if brain.fsm.current_name() == "Hide":
-			break
-	assert_str(brain.fsm.current_name()).is_equal("Hide")
+	var hid: bool = await ticks_until(func() -> bool: return brain.fsm.current_name() == "Hide", 30 * 60)  # up to 30 s
+	assert_bool(hid).append_failure_message("state %s at %s" % [brain.fsm.current_name(), body.global_position]).is_true()
 	assert_float(body.global_position.distance_to(spawn)).is_greater(2.0)
 	assert_bool(grid.visible_from_spawn[grid.nearest_cell(body.global_position)]).is_false()
 
 
 func test_seeker_waits_until_allowed_then_patrols() -> void:
-	var r := await NavArenaHelper.ready_arena(self)
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	var grid := VisibilityGrid.new()
 	var los := NavArenaHelper.los_walls(arena)
@@ -4017,32 +4452,31 @@ func test_seeker_waits_until_allowed_then_patrols() -> void:
 	var brain: RobotBrain = body.get_node("Brain")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2
-	await runner.simulate_frames(2)
+	await ticks(60)  # settle onto the floor first: the ~0.2 m drop is not "moving"
 	brain.setup("seeker", rng, arena.nav, grid, los, RoundConfig.new(), arena.seeker_spawn_point())
 	brain.active = true
 	var start: Vector3 = body.global_position
-	await runner.simulate_frames(120)
+	await ticks(120)  # 2 s in Wait
 	assert_str(brain.fsm.current_name()).is_equal("Wait")
-	assert_float(body.global_position.distance_to(start)).is_less(0.1)
+	assert_float(_xz(body.global_position).distance_to(_xz(start))).is_less(0.1)
 	brain.bb.seeking_allowed = true
-	await runner.simulate_frames(180)
+	await ticks(180)  # 3 s of Patrol
 	assert_str(brain.fsm.current_name()).is_equal("Patrol")
-	assert_float(body.global_position.distance_to(start)).is_greater(1.0)
+	assert_float(_xz(body.global_position).distance_to(_xz(start))).is_greater(1.0)
 	assert_float(body.distance_travelled).is_greater(1.0)
 
 
 func test_sensor_ablation_flags_reach_blackboard() -> void:
-	var r := await NavArenaHelper.ready_arena(self)
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	var cfg := RoundConfig.new()
 	cfg.seeker_sensors = PackedStringArray(["lidar", "bumper"])
 	var body := NavArenaHelper.spawn_robot(arena, arena.seeker_spawn_point(), "seeker")
 	var brain: RobotBrain = body.get_node("Brain")
-	await runner.simulate_frames(2)
+	await ticks(2)
 	brain.setup("seeker", RandomNumberGenerator.new(), arena.nav, VisibilityGrid.new(), NavArenaHelper.los_walls(arena), cfg, arena.seeker_spawn_point())
 	brain.active = true
-	await runner.simulate_frames(3)
+	await ticks(3)
 	assert_bool(brain.bb.lidar_enabled).is_true()
 	assert_bool(brain.bb.vision_enabled).is_false()
 	assert_bool(brain.bb.ultrasonic_enabled).is_false()
@@ -4050,21 +4484,36 @@ func test_sensor_ablation_flags_reach_blackboard() -> void:
 
 
 func test_set_caught_stops_robot() -> void:
-	var r := await NavArenaHelper.ready_arena(self)
-	var runner: GdUnitSceneRunner = r[0]
+	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]
 	var body := NavArenaHelper.spawn_robot(arena, Vector3(-13, 0, 8), "hider")
 	var brain: RobotBrain = body.get_node("Brain")
-	await runner.simulate_frames(2)
+	await ticks(2)
 	brain.setup_goto(arena.nav, Vector3(-5, 0, 8))
 	brain.active = true
-	await runner.simulate_frames(60)
+	await ticks(60)
 	brain.set_caught()
-	await runner.simulate_frames(30)
+	await ticks(30)
 	var p: Vector3 = body.global_position
-	await runner.simulate_frames(30)
-	assert_float(body.global_position.distance_to(p)).is_less(0.05)
+	await ticks(30)
+	assert_float(_xz(body.global_position).distance_to(_xz(p))).is_less(0.05)
 	assert_str(brain.stats()["state"]).is_equal("Caught")
+
+
+func test_inactive_brain_holds_body_still() -> void:
+	var r: Array = await NavArenaHelper.ready_arena(self)
+	var arena: Arena = r[1]
+	var body := NavArenaHelper.spawn_robot(arena, Vector3(-13, 0, 8), "hider")
+	var brain: RobotBrain = body.get_node("Brain")
+	await ticks(2)
+	brain.setup_goto(arena.nav, Vector3(-5, 0, 8))
+	brain.active = true
+	await ticks(60)  # driving toward the goal
+	brain.active = false  # frozen: the brain must zero the latched DriveBody command
+	await ticks(30)  # wheel deceleration is rate-limited: <= 20 ticks from full speed
+	var p: Vector3 = body.global_position
+	await ticks(30)
+	assert_float(_xz(body.global_position).distance_to(_xz(p))).is_less(0.05)
 ```
 
 - [ ] **Step 6: Run, expect failure**
@@ -4085,7 +4534,6 @@ var motion: Motion = Motion.new()
 var body: DriveBody
 var active: bool = false
 var caught: bool = false
-var strategy_name: String = ""
 var stuck_events: int = 0
 
 var _lidar: Lidar
@@ -4095,6 +4543,7 @@ var _bumper: Bumper
 var _overlay: DebugOverlay
 var _sensors: Array[SensorBase] = []
 var _was_stuck: bool = false
+var _walls: Array[Rect2] = []  # static layout, to drop wall-end blobs
 
 
 func _ready() -> void:
@@ -4123,8 +4572,9 @@ func setup(role: String, rng: RandomNumberGenerator, nav: NavService, grid: Visi
 	body.role = role
 	bb.role = role
 	bb.rng = rng
+	_walls = grid.wall_rects
 	_enable_sensors(role, config)
-	motion.path_provider = nav.get_path
+	motion.path_provider = nav.find_path
 	motion.max_v = body.model.max_linear_speed() * 0.8
 	if role == "seeker":
 		var ctx := SeekerStates.Context.new()
@@ -4139,10 +4589,8 @@ func setup(role: String, rng: RandomNumberGenerator, nav: NavService, grid: Visi
 	else:
 		var hctx := HiderStates.Context.new()
 		hctx.grid = grid
-		hctx.los = los
 		hctx.seeker_spawn = seeker_spawn
 		hctx.strategy = HiderStrategy.create(config.hider_strategy)
-		strategy_name = hctx.strategy.strategy_name
 		fsm = HiderStates.build(hctx)
 		fsm.start("PickSpot", bb)
 		_set_color(Color(0.2, 0.6, 0.9))
@@ -4152,7 +4600,7 @@ func setup_goto(nav: NavService, goal: Vector3) -> void:
 	bb.role = body.role
 	for s in _sensors:
 		s.enabled = true
-	motion.path_provider = nav.get_path
+	motion.path_provider = nav.find_path
 	motion.max_v = body.model.max_linear_speed() * 0.8
 	fsm = FSM.new()
 	fsm.add(GoToState.new(goal))
@@ -4186,25 +4634,36 @@ func stats() -> Dictionary:
 
 
 func _physics_process(dt: float) -> void:
-	if not active or fsm == null:
+	if fsm == null:
+		return  # not set up: drive and sensor scene tests command the body directly
+	if not active:
+		# Frozen (by a test) or round over: DriveBody latches its last command, so hold zero.
+		body.set_command(0.0, 0.0)
 		return
 	bb.time += dt
 	bb.position = body.global_position
 	bb.yaw = body.yaw()
 	for s in _sensors:
-		s.sense(bb)
-	bb.blobs = LidarBlobs.detect(bb.lidar_ranges, bb.lidar_angles, bb.lidar_max_range) if bb.lidar_enabled else []
+		if s.due(dt):
+			s.sense(bb)
+	# Typed local: a ternary `detect(...) if cond else []` yields an untyped Array and
+	# fails at runtime when assigned to Array[Dictionary].
+	var blobs: Array[Dictionary] = []
+	if bb.lidar_enabled:
+		blobs = LidarBlobs.detect(bb.lidar_ranges, bb.lidar_angles, bb.lidar_max_range)
+		blobs = LidarBlobs.off_walls(blobs, bb, _walls)
+	bb.blobs = blobs
 	if caught:
 		body.set_command(0.0, 0.0)
 		return
 	fsm.update(bb, dt)
-	var cmd: Vector2 = motion.update(bb, dt)
+	var cmd: Vector2 = motion.update(bb)
 	body.set_command(cmd.x, cmd.y)
 	if bb.stuck and not _was_stuck:
 		stuck_events += 1
 	_was_stuck = bb.stuck
 	if _overlay:
-		_overlay.draw(bb, _lidar, _vision)
+		_overlay.draw(bb, _vision)
 ```
 
 In `robot.tscn`, attach the script to `Brain`:
@@ -4218,7 +4677,7 @@ script = ExtResource("brain")
 
 - [ ] **Step 8: Run, expect pass**
 
-Run: `./run_tests.sh`. The two navigation-driven tests are the first real integration of motion + sensors + physics. If `test_goto_reaches_goal_around_a_crate` fails by getting stuck on the crate, tune in this order and re-run: `Motion.k_ang` down to 2.0, `Steering.avoid_dist` up to 2.0, `Lidar.ray_count` up to 48. Record the final values in the commit message. Do not loosen the test.
+Run: `./run_tests.sh`. The two navigation-driven tests are the first real integration of motion + sensors + physics. If `test_goto_reaches_goal_around_a_crate` fails by getting stuck on the crate, tune in this order and re-run: `Motion.k_ang` down to 2.0, `Motion.avoid_dist` (default 1.5, passed to `Steering.pick_heading`) up to 2.0, `Lidar.ray_count` up to 48. Record the final values in the commit message. Do not loosen the test.
 
 - [ ] **Step 9: Visual check via computer-use-vnc**
 
@@ -4242,16 +4701,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/unit/catch_rule_test.gd`, `tests/scene/game_manager_test.gd`
 
 **Interfaces:**
-- Consumes: `Arena`, `NavService`, `PropLayout`, `PropSpawner`, `VisibilityGrid`, `RobotBrain`, `RoundConfig`.
+- Consumes: `Arena`, `NavService`, `PropLayout`, `PropSpawner`, `VisibilityGrid`, `RobotBrain`, `RoundConfig`, `FSM.force` (test seam, Task 11), `PhysicsTestSuite` (Task 1).
 - Produces:
-  - `class_name CatchRule`: `static func is_catch(distance: float, tag_range: float, seeker_state: String, los_clear: bool) -> bool`
+  - `class_name CatchRule`: `static func is_catch(distance: float, tag_range: float, seeker_state: String, los_clear: bool) -> bool` (catch iff `distance < tag_range`, LOS clear, state `Chase` or `Catch`)
   - `class_name GameManager extends Node`
     - `signal round_started(config: RoundConfig)`, `signal round_finished(results: Dictionary)`
     - `@export var arena_path: NodePath`
-    - `var phase: String` one of `"idle" | "setup" | "head_start" | "seeking" | "finished"`
+    - `var phase: String` one of `"idle" | "setup" | "head_start" | "seeking" | "finished"`. `"setup"` waits at most `SETUP_MAX_TICKS = 600` physics ticks for `nav.is_ready()`; on expiry it calls `push_error("nav not ready")`, returns to `"idle"` and emits nothing (`results()` stays `{}`).
     - `var time: float` seconds since the round began (includes head start); `func seek_time() -> float` = `max(0, time - head_start)`
     - `var seeker: RobotBrain`, `var hiders: Array[RobotBrain]`, `var grid: VisibilityGrid`, `var config: RoundConfig`, `var rng: RandomNumberGenerator`
     - `func start_round(cfg: RoundConfig) -> void`
+    - `func _spawn_one(role: String, pos: Vector3, index: int) -> RobotBrain` (internal; seeker and hiders spawn through it)
+    - On a catch: `hider.set_caught()`, the hider id is appended to `seeker.bb.caught_ids` and its position written to `seeker.bb.last_known[id]` (so the caught-hider blob filter of Task 13 also works without vision).
     - `func results() -> Dictionary` (valid after `round_finished`):
       ```
       {
@@ -4290,6 +4751,11 @@ func test_catch_requires_chase_state() -> void:
 
 func test_out_of_range() -> void:
 	assert_bool(CatchRule.is_catch(1.6, 1.5, "Chase", true)).is_false()
+
+
+func test_exactly_at_tag_range_is_not_a_catch() -> void:
+	# spec: distance < tag range
+	assert_bool(CatchRule.is_catch(1.5, 1.5, "Chase", true)).is_false()
 ```
 
 - [ ] **Step 2: Run, expect failure; implement catch_rule.gd**
@@ -4301,7 +4767,7 @@ extends RefCounted
 
 
 static func is_catch(distance: float, tag_range: float, seeker_state: String, los_clear: bool) -> bool:
-	if distance > tag_range:
+	if distance >= tag_range:  # spec: catch when distance < tag range
 		return false
 	if not los_clear:
 		return false
@@ -4315,12 +4781,13 @@ Run: `./run_tests.sh` → catch rule tests pass.
 `tests/scene/game_manager_test.gd`:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ARENA := preload("res://scenes/arena/arena.tscn")
+const CRATE := preload("res://scenes/props/crate.tscn")
 
 
-func _game(suite_runner_out: Array) -> GameManager:
+func _game() -> GameManager:
 	var root := Node3D.new()
 	var arena: Arena = ARENA.instantiate()
 	arena.name = "Arena"
@@ -4329,8 +4796,8 @@ func _game(suite_runner_out: Array) -> GameManager:
 	gm.name = "GameManager"
 	gm.arena_path = NodePath("../Arena")
 	root.add_child(gm)
-	var runner := scene_runner(root)
-	suite_runner_out.append(runner)
+	var runner := scene_runner(auto_free(root))  # the runner itself is auto-freed by gdUnit
+	assert_object(runner.scene()).is_same(root)
 	return gm
 
 
@@ -4344,19 +4811,28 @@ func _short_config(seed: int = 3) -> RoundConfig:
 	return c
 
 
+## Physics-tick budget for a whole round: setup + head start + seek phase + 5 s slack.
+func _budget(cfg: RoundConfig) -> int:
+	return int((cfg.head_start + cfg.round_time + 5.0) * 60.0)
+
+
+func _run_to_end(gm: GameManager, cfg: RoundConfig) -> bool:
+	return await ticks_until(func() -> bool: return gm.phase == "finished", _budget(cfg))
+
+
+func _wait_setup(gm: GameManager) -> bool:
+	return await ticks_until(func() -> bool: return gm.phase != "setup", 600)
+
+
 func test_round_lifecycle_emits_started_and_finished() -> void:
-	var out: Array = []
-	var gm := _game(out)
-	var runner: GdUnitSceneRunner = out[0]
-	var started := monitor_signals(gm)
-	gm.start_round(_short_config())
-	for i in 10 * 60:
-		await runner.simulate_frames(1)
-		if gm.phase == "finished":
-			break
-	assert_str(gm.phase).is_equal("finished")
-	await assert_signal(started).is_emitted("round_started")
-	await assert_signal(started).is_emitted("round_finished")
+	var gm := _game()
+	var cfg := _short_config()
+	var monitored := monitor_signals(gm)
+	gm.start_round(cfg)
+	assert_bool(await _run_to_end(gm, cfg)).append_failure_message("phase %s" % gm.phase).is_true()
+	# Both signals carry one argument; a bare is_emitted(name) only matches zero-arg emissions.
+	await assert_signal(monitored).is_emitted("round_started", [any()])
+	await assert_signal(monitored).is_emitted("round_finished", [any()])
 	var res: Dictionary = gm.results()
 	assert_int(res["hiders_total"]).is_equal(1)
 	assert_int(res["seed"]).is_equal(3)
@@ -4365,16 +4841,11 @@ func test_round_lifecycle_emits_started_and_finished() -> void:
 
 
 func test_round_ends_on_timeout() -> void:
-	var out: Array = []
-	var gm := _game(out)
-	var runner: GdUnitSceneRunner = out[0]
+	var gm := _game()
 	var cfg := _short_config()
 	cfg.seeker_sensors = PackedStringArray([])  # blind seeker cannot catch anyone
 	gm.start_round(cfg)
-	for i in 10 * 60:
-		await runner.simulate_frames(1)
-		if gm.phase == "finished":
-			break
+	assert_bool(await _run_to_end(gm, cfg)).append_failure_message("phase %s" % gm.phase).is_true()
 	var res: Dictionary = gm.results()
 	assert_int(res["hiders_caught"]).is_equal(0)
 	assert_bool(res["hiders"][0]["caught"]).is_false()
@@ -4383,70 +4854,97 @@ func test_round_ends_on_timeout() -> void:
 
 
 func test_seeker_catches_adjacent_visible_hider() -> void:
-	var out: Array = []
-	var gm := _game(out)
-	var runner: GdUnitSceneRunner = out[0]
+	var gm := _game()
 	var cfg := _short_config()
 	cfg.head_start = 0.5
 	cfg.round_time = 10.0
 	cfg.prop_count = 0
 	gm.start_round(cfg)
-	# wait for setup to finish
-	for i in 60:
-		await runner.simulate_frames(1)
-		if gm.phase != "setup":
-			break
+	assert_bool(await _wait_setup(gm)).is_true()
 	var hider: RobotBrain = gm.hiders[0]
-	hider.active = false  # freeze it
+	hider.active = false  # freeze it: RobotBrain then holds its body at zero command
 	var sp: Vector3 = gm.seeker.body.global_position
 	hider.body.global_position = sp + gm.seeker.body.forward() * 3.0
 	hider.body.rotation.y = gm.seeker.body.rotation.y
-	for i in 10 * 60:
-		await runner.simulate_frames(1)
-		if gm.phase == "finished":
-			break
+	assert_bool(await _run_to_end(gm, cfg)).append_failure_message("phase %s" % gm.phase).is_true()
 	var res: Dictionary = gm.results()
-	assert_int(res["hiders_caught"]).is_equal(1)
+	assert_int(res["hiders_caught"]).append_failure_message("seeker transitions %s" % [gm.seeker.fsm.transitions]).is_equal(1)
 	assert_float(res["hiders"][0]["catch_time"]).is_between(0.0, 6.0)
 	assert_int(res["seeker"]["transition_counts"].get("Chase->Catch", 0)).is_greater_equal(1)
 
 
 func test_blind_seeker_touching_hider_does_not_catch() -> void:
-	var out: Array = []
-	var gm := _game(out)
-	var runner: GdUnitSceneRunner = out[0]
+	var gm := _game()
 	var cfg := _short_config()
 	cfg.head_start = 0.5
 	cfg.round_time = 3.0
 	cfg.prop_count = 0
-	cfg.seeker_sensors = PackedStringArray(["bumper"])
+	cfg.seeker_sensors = PackedStringArray(["bumper"])  # no vision, no lidar: no detection at all
 	gm.start_round(cfg)
-	for i in 60:
-		await runner.simulate_frames(1)
-		if gm.phase != "setup":
-			break
+	assert_bool(await _wait_setup(gm)).is_true()
 	var hider: RobotBrain = gm.hiders[0]
 	hider.active = false
 	hider.body.global_position = gm.seeker.body.global_position + gm.seeker.body.forward() * 1.0
-	for i in 10 * 60:
-		await runner.simulate_frames(1)
-		if gm.phase == "finished":
-			break
+	assert_bool(await _run_to_end(gm, cfg)).append_failure_message("phase %s" % gm.phase).is_true()
 	assert_int(gm.results()["hiders_caught"]).is_equal(0)
 
 
+## Seeker and frozen hider 1.0 m apart (inside tag range 1.5) with the seeker forced
+## into Chase and a catch requested for that hider. Both brains are inactive, so the
+## bodies hold still and only the GameManager's catch rule decides (distance, state,
+## mask-3 walls+props LOS ray). With with_crate, a thin crate stands between them.
+func _face_off(with_crate: bool) -> GameManager:
+	var gm := _game()
+	var cfg := _short_config()
+	cfg.head_start = 0.5
+	cfg.round_time = 3.0
+	cfg.prop_count = 0
+	gm.start_round(cfg)
+	assert_bool(await ticks_until(func() -> bool: return gm.phase == "seeking", 600 + 60)).is_true()
+	var seeker: RobotBrain = gm.seeker
+	var hider: RobotBrain = gm.hiders[0]
+	seeker.active = false
+	hider.active = false
+	await ticks(30)  # let both bodies decelerate to a stop (rate-limited wheels)
+	var sp: Vector3 = seeker.body.global_position
+	var fwd: Vector3 = seeker.body.forward()
+	hider.body.global_position = sp + fwd * 1.0
+	hider.body.rotation.y = seeker.body.rotation.y
+	if with_crate:
+		# 1.5 m wide, 1 m tall, 0.2 m thick, across the line of sight halfway between
+		# them: 0.15 m clear of the seeker's front (sp - 0.25) and the hider's back (sp - 0.75).
+		var crate: StaticBody3D = CRATE.instantiate()
+		crate.scale = Vector3(1.5, 1.0, 0.2)
+		crate.rotation.y = seeker.body.rotation.y
+		crate.position = Vector3(sp.x, 0.5, sp.z) + fwd * 0.5
+		gm.arena.props_root.add_child(crate)
+	seeker.fsm.force("Chase", seeker.bb)
+	seeker.bb.catch_request = hider.body.get_instance_id()
+	return gm
+
+
+func test_hider_behind_crate_not_caught() -> void:
+	var gm: GameManager = await _face_off(true)
+	await ticks(120)
+	assert_str(gm.seeker.bb.state_name).is_equal("Chase")
+	assert_bool(gm.hiders[0].caught).is_false()
+	assert_bool(await _run_to_end(gm, gm.config)).append_failure_message("phase %s" % gm.phase).is_true()
+	assert_int(gm.results()["hiders_caught"]).is_equal(0)
+
+
+func test_same_face_off_without_crate_is_caught() -> void:
+	# Positive control for the test above: identical geometry and request, no crate.
+	var gm: GameManager = await _face_off(false)
+	assert_bool(await ticks_until(func() -> bool: return gm.hiders[0].caught, 10)).is_true()
+
+
 func test_spawns_configured_hider_count_and_props() -> void:
-	var out: Array = []
-	var gm := _game(out)
-	var runner: GdUnitSceneRunner = out[0]
+	var gm := _game()
 	var cfg := _short_config()
 	cfg.hider_count = 3
 	cfg.prop_count = 10
 	gm.start_round(cfg)
-	for i in 60:
-		await runner.simulate_frames(1)
-		if gm.phase != "setup":
-			break
+	assert_bool(await _wait_setup(gm)).is_true()
 	assert_int(gm.hiders.size()).is_equal(3)
 	assert_int(gm.arena.props_root.get_child_count()).is_equal(10)
 	assert_int(gm.arena.robots_root.get_child_count()).is_equal(4)
@@ -4467,6 +4965,7 @@ signal round_started(config: RoundConfig)
 signal round_finished(results: Dictionary)
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
+const SETUP_MAX_TICKS: int = 600  # 10 s at 60 Hz; the navmesh is normally ready in ~3 ticks
 
 @export var arena_path: NodePath
 
@@ -4482,6 +4981,7 @@ var hiders: Array[RobotBrain] = []
 var _spawner: PropSpawner = PropSpawner.new()
 var _catch_times: Array[float] = []
 var _results: Dictionary = {}
+var _setup_ticks: int = 0
 
 
 func _ready() -> void:
@@ -4517,23 +5017,33 @@ func start_round(cfg: RoundConfig) -> void:
 	hiders.clear()
 	seeker = null
 	_spawner.clear(arena.props_root)
-	# Props (seeded), keep spawns clear.
-	var keep: Array[Vector3] = [arena.seeker_spawn_point()] + arena.hider_spawn_points()
+	# Props (seeded), keep spawns clear. Typed list built with append_array: `[a] + typed`
+	# is an untyped Array and fails at runtime when assigned to Array[Vector3].
+	var keep: Array[Vector3] = [arena.seeker_spawn_point()]
+	keep.append_array(arena.hider_spawn_points())
 	var layout := PropLayout.generate(rng, cfg.prop_count, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
 	_spawner.spawn(layout, arena.props_root)
 	arena.nav.bake(arena.static_root)
+	_setup_ticks = 0
 	phase = "setup"
 
 
+## Instantiates one robot under arena.robots_root and wires its brain (both roles).
+func _spawn_one(role: String, pos: Vector3, index: int) -> RobotBrain:
+	var body: DriveBody = ROBOT.instantiate()
+	body.name = "Seeker" if role == "seeker" else "Hider%d" % index
+	body.role = role
+	body.position = pos + Vector3(0, 0.3, 0)
+	if role == "hider":
+		body.rotation.y = rng.randf_range(-PI, PI)
+	arena.robots_root.add_child(body)
+	var brain: RobotBrain = body.get_node("Brain")
+	brain.setup(role, rng, arena.nav, grid, _los_walls, config, arena.seeker_spawn_point())
+	return brain
+
+
 func _spawn_robots() -> void:
-	# Seeker.
-	var sb: DriveBody = ROBOT.instantiate()
-	sb.name = "Seeker"
-	sb.role = "seeker"
-	sb.position = arena.seeker_spawn_point() + Vector3(0, 0.3, 0)
-	arena.robots_root.add_child(sb)
-	seeker = sb.get_node("Brain")
-	seeker.setup("seeker", rng, arena.nav, grid, _los_walls, config, arena.seeker_spawn_point())
+	seeker = _spawn_one("seeker", arena.seeker_spawn_point(), 0)
 	# Hiders at a seeded random subset of spawn markers.
 	var spawns: Array[Vector3] = arena.hider_spawn_points()
 	for i in range(spawns.size() - 1, 0, -1):  # Fisher-Yates with our RNG
@@ -4542,22 +5052,18 @@ func _spawn_robots() -> void:
 		spawns[i] = spawns[j]
 		spawns[j] = tmp
 	for i in mini(config.hider_count, spawns.size()):
-		var hb: DriveBody = ROBOT.instantiate()
-		hb.name = "Hider%d" % i
-		hb.role = "hider"
-		hb.position = spawns[i] + Vector3(0, 0.3, 0)
-		hb.rotation.y = rng.randf_range(-PI, PI)
-		arena.robots_root.add_child(hb)
-		var brain: RobotBrain = hb.get_node("Brain")
-		brain.setup("hider", rng, arena.nav, grid, _los_walls, config, arena.seeker_spawn_point())
-		hiders.append(brain)
+		hiders.append(_spawn_one("hider", spawns[i], i))
 		_catch_times.append(-1.0)
 
 
 func _physics_process(dt: float) -> void:
 	match phase:
 		"setup":
+			_setup_ticks += 1
 			if not arena.nav.is_ready():
+				if _setup_ticks >= SETUP_MAX_TICKS:
+					push_error("nav not ready")
+					phase = "idle"  # no signal; results() stays {} and BatchRunner skips the round
 				return
 			grid = VisibilityGrid.new()
 			grid.build(arena.bounds(), arena.wall_rects(), arena.seeker_spawn_point(), _los_walls)
@@ -4600,6 +5106,8 @@ func _check_catches() -> void:
 		if CatchRule.is_catch(d, config.tag_range, seeker.bb.state_name, los_clear(sp, hp, 3)):
 			h.set_caught()
 			seeker.bb.caught_ids.append(id)
+			# Remember where it was caught, so a seeker without vision ignores its blob from now on.
+			seeker.bb.last_known[id] = {"position": hp, "time": seeker.bb.time, "role": "hider"}
 			_catch_times[i] = seek_time()
 
 
@@ -4646,7 +5154,7 @@ Note: `los_clear(sp, hp, 3)` uses mask 1|2 (walls + props), so robots never bloc
 
 - [ ] **Step 6: Run, expect pass**
 
-Run: `./run_tests.sh`. The frozen-hider catch test depends on the seeker seeing a robot 3 m ahead at round start: `Wait` → `Patrol` → `Chase` within a second. If it fails, print `gm.seeker.fsm.transitions` in the failure message to see where it stalled before changing anything.
+Run: `./run_tests.sh`. The frozen-hider catch test depends on the seeker seeing a robot 3 m ahead at round start: `Wait` → `Patrol` → `Chase` within a second (vision now hits the target's mast, Task 3/7). Its failure message prints `gm.seeker.fsm.transitions` (with reasons) to show where it stalled; read that before changing anything. These round-level tests take real time (physics ticks run at 60 Hz in tests): about 5–15 s each.
 
 - [ ] **Step 7: Commit**
 
@@ -4933,10 +5441,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces:
-  - `class_name ResultsCsv`: `const MAX_HIDERS := 3`, `static func header() -> PackedStringArray`, `static func row(res: Dictionary) -> PackedStringArray`, `static func transitions_rows(res: Dictionary) -> Array[PackedStringArray]` (one row per FSM transition: variant, seed, robot, time, from, to).
+  - `class_name ResultsCsv`: `const MAX_HIDERS := 3`, `static func header() -> PackedStringArray`, `static func row(res: Dictionary) -> PackedStringArray`, `static func transitions_header() -> PackedStringArray`, `static func transitions_rows(res: Dictionary) -> Array[PackedStringArray]` (one row per FSM transition: variant, seed, robot, time, from, to, reason; `reason` comes from the Task 11 transition log).
     Columns: `variant, seed, hider_strategy, seeker_sensors, hider_sensors, hiders_total, hiders_caught, duration, seeker_distance, seeker_collisions, seeker_stuck, seeker_transitions, hider0_caught, hider0_catch_time, hider0_distance, hider0_collisions, hider0_stuck, hider0_transitions, hider1_..., hider2_...` (missing hiders → empty strings).
   - `class_name ExperimentConfig extends Resource`: `@export var variants: Array[RoundConfig]`, `@export var rounds_per_variant: int = 20`.
-  - `class_name BatchRunner extends Node` (root of `batch.tscn`, children `Arena`, `GameManager`): parses `OS.get_cmdline_user_args()`: `--config <res path>` (required), `--rounds <n>` (overrides `rounds_per_variant`), `--out <path>` (default `experiments/results.csv`), `--time-scale <f>` (default 8), `--log-transitions`, `--seed-offset <n>` (default 0). Runs every variant × seeds `offset..offset+rounds-1`, writes rows as each round ends, prints a summary table, `get_tree().quit(0)`; `quit(2)` on bad args.
+  - `class_name BatchRunner extends Node` (root of `batch.tscn`, children `Arena`, `GameManager`): parses `OS.get_cmdline_user_args()`: `--config <res path>` (required), `--rounds <n>` (overrides `rounds_per_variant`), `--out <path>` (default `experiments/results.csv`), `--time-scale <f>` (default 8), `--log-transitions`, `--seed-offset <n>` (default 0). First plays one discarded warm-up round (first variant, seed `offset`; see the determinism note in Step 3), then runs every variant × seeds `offset..offset+rounds-1`; each round advances only on `GameManager.round_finished` (never by counting frames); writes rows as each round ends, prints a summary table, `get_tree().quit(0)`; `quit(2)` on bad args or an unopenable output file. A round whose setup times out (GameManager back to `"idle"` with no signal, checked once per physics tick) or whose results are `{}` is logged with `push_error` and skipped.
   - `run_experiment.sh <config.tres> <rounds> <out.csv> [extra args]` wrapper.
 
 - [ ] **Step 1: Write failing CSV tests**
@@ -4952,7 +5460,7 @@ func _res(caught: Array[bool]) -> Dictionary:
 	for i in caught.size():
 		hiders.append({"index": i, "caught": caught[i], "catch_time": 12.5 if caught[i] else -1.0,
 			"distance": 10.0 + i, "collisions": i, "stuck_events": 0,
-			"transitions": [{"time": 1.0, "from": "PickSpot", "to": "GoToSpot"}],
+			"transitions": [{"time": 1.0, "from": "PickSpot", "to": "GoToSpot", "reason": "spot chosen"}],
 			"transition_counts": {"PickSpot->GoToSpot": 1}})
 	var n_caught: int = 0
 	for c in caught:
@@ -4963,7 +5471,8 @@ func _res(caught: Array[bool]) -> Dictionary:
 		"seeker_sensors": "lidar+vision+ultrasonic+bumper", "hider_sensors": "lidar+vision+ultrasonic+bumper",
 		"hiders_total": caught.size(), "hiders_caught": n_caught, "duration": 60.0,
 		"seeker": {"distance": 42.0, "collisions": 1, "stuck_events": 2,
-			"transitions": [{"time": 15.0, "from": "Wait", "to": "Patrol"}, {"time": 20.0, "from": "Patrol", "to": "Chase"}],
+			"transitions": [{"time": 15.0, "from": "Wait", "to": "Patrol", "reason": "head start over"},
+				{"time": 20.0, "from": "Patrol", "to": "Chase", "reason": "hider seen"}],
 			"transition_counts": {"Wait->Patrol": 1, "Patrol->Chase": 1}},
 		"hiders": hiders,
 	}
@@ -4999,8 +5508,9 @@ func test_csv_row_with_survivors() -> void:
 func test_transition_rows() -> void:
 	var rows := ResultsCsv.transitions_rows(_res([true]))
 	assert_int(rows.size()).is_equal(3)  # 2 seeker + 1 hider
-	assert_array(Array(rows[0])).is_equal(["all", "4", "seeker", "15.000", "Wait", "Patrol"])
-	assert_array(Array(rows[2])).is_equal(["all", "4", "hider0", "1.000", "PickSpot", "GoToSpot"])
+	assert_int(ResultsCsv.transitions_header().size()).is_equal(7)
+	assert_array(Array(rows[0])).is_equal(["all", "4", "seeker", "15.000", "Wait", "Patrol", "head start over"])
+	assert_array(Array(rows[2])).is_equal(["all", "4", "hider0", "1.000", "PickSpot", "GoToSpot", "spot chosen"])
 ```
 
 - [ ] **Step 2: Run, expect failure; implement results_csv.gd**
@@ -5053,17 +5563,17 @@ static func row(res: Dictionary) -> PackedStringArray:
 
 
 static func transitions_header() -> PackedStringArray:
-	return PackedStringArray(["variant", "seed", "robot", "time", "from", "to"])
+	return PackedStringArray(["variant", "seed", "robot", "time", "from", "to", "reason"])
 
 
 static func transitions_rows(res: Dictionary) -> Array[PackedStringArray]:
 	var out: Array[PackedStringArray] = []
 	for t in res["seeker"]["transitions"]:
-		out.append(PackedStringArray([str(res["variant"]), str(res["seed"]), "seeker", _f(t["time"]), t["from"], t["to"]]))
+		out.append(PackedStringArray([str(res["variant"]), str(res["seed"]), "seeker", _f(t["time"]), t["from"], t["to"], t["reason"]]))
 	var hiders: Array = res["hiders"]
 	for i in hiders.size():
 		for t in hiders[i]["transitions"]:
-			out.append(PackedStringArray([str(res["variant"]), str(res["seed"]), "hider%d" % i, _f(t["time"]), t["from"], t["to"]]))
+			out.append(PackedStringArray([str(res["variant"]), str(res["seed"]), "hider%d" % i, _f(t["time"]), t["from"], t["to"], t["reason"]]))
 	return out
 ```
 
@@ -5071,15 +5581,17 @@ Run: `./run_tests.sh` → CSV tests pass.
 
 - [ ] **Step 3: Write the failing determinism scene test**
 
-`tests/scene/determinism_test.gd`. Both rounds run in the same scene back to back (as the batch runner does), so leftover bodies from a parallel world cannot perturb the second run:
+`tests/scene/determinism_test.gd`. Both rounds run in the same scene back to back (as the batch runner does), so leftover bodies from a parallel world cannot perturb the second run. Each round waits in physics ticks with a budget of (head_start + round_time + 5) × 60 ticks; a 7 s round takes about 7–8 s of wall-clock time.
+
+Warm-up round: a pre-flight probe of this exact stack (Godot 4.7.2, Jolt) showed that the **first** round played in a process differs from every later round with the same seed (seed 21: hider distances 12.414/10.770 in round 1, 11.758/8.392 in every later seed-21 round, including after other seeds in between; reproduced in 4 separate processes, and identical across processes). The cause is not identified (engine state warm-up in the fresh physics/navigation world). Both tests therefore play one discarded warm-up round first, and `BatchRunner` does the same, so every recorded row is reproducible both within a process and across processes:
 
 ```gdscript
-extends GdUnitTestSuite
+extends PhysicsTestSuite
 
 const ARENA := preload("res://scenes/arena/arena.tscn")
 
 
-func _make_game() -> Array:  # [runner, gm]
+func _make_game() -> GameManager:
 	var root := Node3D.new()
 	var arena: Arena = ARENA.instantiate()
 	arena.name = "Arena"
@@ -5087,11 +5599,12 @@ func _make_game() -> Array:  # [runner, gm]
 	var gm := GameManager.new()
 	gm.arena_path = NodePath("../Arena")
 	root.add_child(gm)
-	var runner := scene_runner(root)
-	return [runner, gm]
+	var runner := scene_runner(auto_free(root))  # the runner itself is auto-freed by gdUnit
+	assert_object(runner.scene()).is_same(root)
+	return gm
 
 
-func _run_round(runner: GdUnitSceneRunner, gm: GameManager, seed: int) -> PackedStringArray:
+func _run_round(gm: GameManager, seed: int) -> PackedStringArray:
 	var cfg := RoundConfig.new()
 	cfg.seed = seed
 	cfg.hider_count = 2
@@ -5099,32 +5612,44 @@ func _run_round(runner: GdUnitSceneRunner, gm: GameManager, seed: int) -> Packed
 	cfg.round_time = 6.0
 	cfg.prop_count = 8
 	gm.start_round(cfg)
-	for i in 12 * 60:
-		await runner.simulate_frames(1)
-		if gm.phase == "finished":
-			break
-	assert_str(gm.phase).is_equal("finished")
-	await runner.simulate_frames(2)  # let queue_free of the previous round settle before the next
+	var budget: int = int((cfg.head_start + cfg.round_time + 5.0) * 60.0)
+	var done: bool = await ticks_until(func() -> bool: return gm.phase == "finished", budget)
+	assert_bool(done).append_failure_message("seed %d: phase %s after %d ticks" % [seed, gm.phase, budget]).is_true()
+	if not done:
+		return PackedStringArray()
+	await ticks(2)  # let queue_free of the previous round settle before the next
 	return ResultsCsv.row(gm.results())
 
 
+## The row without its `seed` column, which differs by construction between seeds.
+func _without_seed(row: PackedStringArray) -> Array:
+	var a: Array = Array(row)
+	a.remove_at(ResultsCsv.header().find("seed"))
+	return a
+
+
 func test_same_seed_same_results() -> void:
-	var g := _make_game()
-	var a := await _run_round(g[0], g[1], 21)
-	var b := await _run_round(g[0], g[1], 21)
+	var gm := _make_game()
+	await _run_round(gm, 0)  # discarded warm-up round (see above)
+	var a: PackedStringArray = await _run_round(gm, 21)
+	var b: PackedStringArray = await _run_round(gm, 21)
+	assert_int(a.size()).is_equal(ResultsCsv.header().size())
 	assert_array(Array(a)).is_equal(Array(b))
 
 
 func test_different_seed_different_results() -> void:
-	var g := _make_game()
-	var a := await _run_round(g[0], g[1], 21)
-	var b := await _run_round(g[0], g[1], 22)
-	assert_array(Array(a)).is_not_equal(Array(b))
+	var gm := _make_game()
+	await _run_round(gm, 0)  # discarded warm-up round (see above)
+	var a: PackedStringArray = await _run_round(gm, 21)
+	var b: PackedStringArray = await _run_round(gm, 22)
+	assert_int(a.size()).is_equal(ResultsCsv.header().size())
+	assert_int(b.size()).is_equal(ResultsCsv.header().size())
+	assert_array(_without_seed(a)).is_not_equal(_without_seed(b))
 ```
 
 - [ ] **Step 4: Run, expect pass or diagnose**
 
-Run: `./run_tests.sh`. If `test_same_seed_same_results` fails: the difference columns tell you which layer is non-deterministic. Common causes: a `randf()` call outside `rng`, iteration over a Dictionary whose insertion order differs, or a `_process` (not `_physics_process`) write. Fix the cause; do not relax the test.
+Run: `./run_tests.sh`. If `test_same_seed_same_results` fails: the difference columns tell you which layer is non-deterministic (first check that the warm-up round ran). Common causes: a `randf()` call outside `rng`, iteration over a Dictionary whose insertion order differs, or a `_process` (not `_physics_process`) write. Fix the cause; do not relax the test.
 
 - [ ] **Step 5: Implement experiment_config.gd, batch_runner.gd, batch.tscn, wrapper**
 
@@ -5162,6 +5687,8 @@ var _si: int = 0
 var _csv: FileAccess
 var _tcsv: FileAccess
 var _summary: Dictionary = {}  # variant -> {rounds, caught, total, duration_sum}
+var _pending: bool = false  # a round was started and has neither finished nor been skipped
+var _warming_up: bool = true  # the first round of a process is played and discarded
 
 
 func _parse_args() -> bool:
@@ -5224,7 +5751,12 @@ func _ready() -> void:
 		return
 	_csv.store_csv_line(ResultsCsv.header())
 	if _log_transitions:
-		_tcsv = FileAccess.open(abs_out.get_basename() + "_transitions.csv", FileAccess.WRITE)
+		var tpath: String = abs_out.get_basename() + "_transitions.csv"
+		_tcsv = FileAccess.open(tpath, FileAccess.WRITE)
+		if _tcsv == null:
+			push_error("cannot open %s" % tpath)
+			get_tree().quit(2)
+			return
 		_tcsv.store_csv_line(ResultsCsv.transitions_header())
 	gm.round_finished.connect(_on_round_finished)
 	_start_next()
@@ -5236,11 +5768,41 @@ func _start_next() -> void:
 		return
 	var cfg: RoundConfig = _variants[_vi].duplicate()
 	cfg.seed = _seed_offset + _si
-	print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
+	if _warming_up:
+		print("[batch] warm-up round (discarded): variant=%s seed=%d" % [cfg.variant_name, cfg.seed])
+	else:
+		print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
+	_pending = true
 	gm.start_round(cfg)
 
 
+## GameManager drops back to "idle" without emitting round_finished when its setup
+## times out (navmesh never ready within 600 ticks). Skip that round instead of waiting forever.
+func _physics_process(_dt: float) -> void:
+	if _pending and gm.phase == "idle":
+		_on_round_finished({})
+
+
+## Advances the batch; driven by GameManager.round_finished (or the idle watchdog above).
 func _on_round_finished(res: Dictionary) -> void:
+	_pending = false
+	if _warming_up:
+		# The first round of a process is not reproducible by later same-seed rounds; drop it.
+		_warming_up = false
+		call_deferred("_start_next")
+		return
+	if res.is_empty():
+		push_error("[batch] variant=%s seed=%d produced no results; round skipped" % [_variants[_vi].variant_name, _seed_offset + _si])
+	else:
+		_record(res)
+	_si += 1
+	if _si >= _rounds:
+		_si = 0
+		_vi += 1
+	call_deferred("_start_next")
+
+
+func _record(res: Dictionary) -> void:
 	_csv.store_csv_line(ResultsCsv.row(res))
 	_csv.flush()
 	if _tcsv:
@@ -5254,11 +5816,6 @@ func _on_round_finished(res: Dictionary) -> void:
 	_summary[v]["caught"] += int(res["hiders_caught"])
 	_summary[v]["total"] += int(res["hiders_total"])
 	_summary[v]["duration_sum"] += float(res["duration"])
-	_si += 1
-	if _si >= _rounds:
-		_si = 0
-		_vi += 1
-	call_deferred("_start_next")
 
 
 func _finish() -> void:
@@ -5445,7 +6002,7 @@ if __name__ == "__main__":
 python3 -I experiments/analyze.py experiments/smoke.csv
 ```
 
-Expected: 10 rounds (5 variants × 2 seeds), exit code 0, `experiments/smoke.csv` has 11 lines, `experiments/smoke_transitions.csv` exists, summary table printed. Wall-clock for the run must be under 5 minutes (10 rounds × 135 s simulated at 8×). Measure with `time`; if it is slower, check that `Engine.max_physics_steps_per_frame` took effect and that the process is not render-bound. Delete `experiments/smoke*.csv` before committing, add `experiments/*.csv` and `experiments/*.png` to `.gitignore`.
+Expected: 10 recorded rounds (5 variants × 2 seeds) after one discarded warm-up round, exit code 0, `experiments/smoke.csv` has 11 lines, `experiments/smoke_transitions.csv` exists, summary table printed. Wall-clock for the run must be under 5 minutes (11 rounds × 135 s simulated at 8×). Measure with `time`; if it is slower, check that `Engine.max_physics_steps_per_frame` took effect and that the process is not render-bound. Delete `experiments/smoke*.csv` before committing, add `experiments/*.csv` and `experiments/*.png` to `.gitignore`.
 
 - [ ] **Step 9: Commit**
 
@@ -5474,7 +6031,7 @@ Run: `./run_tests.sh` → exit 0. Paste the final statistics line into the verif
 - [ ] **Step 2: Headless batch sanity**
 
 ```bash
-time ./run_experiment.sh res://experiments/ablation.tres 5 experiments/ablation_smoke.csv
+time ./run_experiment.sh res://experiments/ablation.tres 5 experiments/ablation_smoke.csv --log-transitions
 python3 -I experiments/analyze.py experiments/ablation_smoke.csv
 ```
 
@@ -5494,7 +6051,7 @@ Expected: `IDENTICAL`. Record the outcome.
 
 Run the main scene (F5) and observe one full round with the overlay on. Check each FSM arrow at least once and tick it in the verification doc with the approximate time it was observed:
 
-- Seeker: Wait→Patrol at 15 s; Patrol→Chase on a sighting; Chase→Catch (hider greys out); Catch→Patrol; Chase→Investigate after losing a hider; Investigate→Patrol timeout.
+- Seeker: Wait→Patrol at 15 s; Patrol→Chase on a sighting; Chase→Catch (hider greys out); Catch→Patrol; Chase→Patrol after losing a hider for > 3 s; Patrol→Investigate on a lidar blob; Investigate→Patrol (timeout or nothing found). Cross-check the reasons against `experiments/ablation_smoke_transitions.csv` from Step 2.
 - Hider: PickSpot→GoToSpot→Hide; Hide→Flee when seen; Flee→PickSpot after escaping; Hide→Relocate on a lidar blob (watch a hider move when the seeker approaches unseen).
 - Motion: a robot routes around a crate; a bumper recovery (reverse-and-turn) after a collision; no robot spins in place for more than 3 s.
 
