@@ -1,0 +1,77 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/robot/drive.gd" id="drive"]
+
+[sub_resource type="PhysicsMaterial" id="frictionless"]
+friction = 0.0
+bounce = 0.0
+
+[sub_resource type="BoxShape3D" id="chassis_shape"]
+size = Vector3(0.4, 0.2, 0.5)
+
+[sub_resource type="BoxMesh" id="chassis_mesh"]
+size = Vector3(0.4, 0.2, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="chassis_mat"]
+albedo_color = Color(0.2, 0.6, 0.9, 1)
+
+[sub_resource type="BoxShape3D" id="mast_shape"]
+size = Vector3(0.3, 0.3, 0.3)
+
+[sub_resource type="BoxMesh" id="mast_mesh"]
+size = Vector3(0.3, 0.3, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="mast_mat"]
+albedo_color = Color(0.95, 0.85, 0.3, 1)
+
+[sub_resource type="CylinderMesh" id="wheel_mesh"]
+top_radius = 0.1
+bottom_radius = 0.1
+height = 0.05
+
+[sub_resource type="StandardMaterial3D" id="wheel_mat"]
+albedo_color = Color(0.1, 0.1, 0.1, 1)
+
+[node name="Robot" type="RigidBody3D"]
+collision_layer = 4
+collision_mask = 7
+mass = 5.0
+physics_material_override = SubResource("frictionless")
+can_sleep = false
+script = ExtResource("drive")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("chassis_shape")
+
+[node name="Mast" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+shape = SubResource("mast_shape")
+
+[node name="Chassis" type="MeshInstance3D" parent="."]
+mesh = SubResource("chassis_mesh")
+surface_material_override/0 = SubResource("chassis_mat")
+
+[node name="MastMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
+mesh = SubResource("mast_mesh")
+surface_material_override/0 = SubResource("mast_mat")
+
+[node name="WheelL" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.2, -0.05, 0)
+mesh = SubResource("wheel_mesh")
+surface_material_override/0 = SubResource("wheel_mat")
+
+[node name="WheelR" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.2, -0.05, 0)
+mesh = SubResource("wheel_mesh")
+surface_material_override/0 = SubResource("wheel_mat")
+
+[node name="Nose" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.12, -0.2)
+mesh = SubResource("chassis_mesh")
+surface_material_override/0 = SubResource("wheel_mat")
+
+[node name="Sensors" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
+
+[node name="Brain" type="Node" parent="."]
