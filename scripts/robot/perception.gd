@@ -4,6 +4,7 @@ class_name Blackboard
 extends RefCounted
 
 # --- robot state (written by RobotBrain each tick)
+var seeking_allowed: bool = false  # set true by GameManager when the head start ends
 var time: float = 0.0
 var position: Vector3 = Vector3.ZERO
 var yaw: float = 0.0
