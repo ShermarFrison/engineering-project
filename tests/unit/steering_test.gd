@@ -6,7 +6,7 @@ const N := 36
 func _scan(hits: Dictionary) -> Array:
 	var ranges := PackedFloat32Array()
 	var angles := PackedFloat32Array()
-	for i in N:
+	for i: int in N:
 		ranges.append(hits.get(i, 8.0))
 		angles.append(wrapf(TAU * i / N, -PI, PI))
 	return [ranges, angles]
@@ -37,7 +37,7 @@ func test_far_obstacle_ignored() -> void:
 func test_prefers_side_with_more_room() -> void:
 	# obstacle ahead; right side (negative angles) also cluttered at 1.2 m, left open
 	var hits := {0: 1.0, 1: 1.0, 35: 1.0}
-	for i in range(27, 35):
+	for i: int in range(27, 35):
 		hits[i] = 1.2
 	var s := _scan(hits)
 	assert_float(Steering.pick_heading(0.0, s[0], s[1], 8.0)).is_greater(0.0)

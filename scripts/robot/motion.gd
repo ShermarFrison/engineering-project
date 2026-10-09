@@ -28,6 +28,10 @@ var _recover_until: float = -INF
 var _recover_w: float = 0.0
 
 
+static func _xz_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
 func reset() -> void:
 	path = PackedVector3Array()
 	_idx = 0
@@ -50,15 +54,15 @@ func update(bb: Blackboard) -> Vector2:
 		return Vector2.ZERO
 
 	# New goal?
-	if not _has_goal or _goal.distance_to(bb.goal_pos) > 0.5:
+	if not _has_goal or _xz_dist(_goal, bb.goal_pos) > 0.5:
 		_goal = bb.goal_pos
 		_has_goal = true
 		_replan(bb)
-		_progress_dist = bb.position.distance_to(_goal)
+		_progress_dist = _xz_dist(bb.position, _goal)
 		_progress_time = bb.time
 		bb.stuck = false
 
-	var dist_goal: float = bb.position.distance_to(_goal)
+	var dist_goal: float = _xz_dist(bb.position, _goal)
 	if dist_goal < arrive_radius:
 		bb.goal_reached = true
 		bb.stuck = false
@@ -81,7 +85,7 @@ func update(bb: Blackboard) -> Vector2:
 	if bb.bumper_enabled and bb.bumper_hit and bb.time >= _recover_until:
 		_recover_until = bb.time + recovery_time
 		var n_angle: float = bb.world_to_local_angle(bb.position + bb.bumper_normal)
-		_recover_w = -1.5 if n_angle > 0.0 else 1.5
+		_recover_w = 1.5 if n_angle > 0.0 else -1.5
 	if bb.time < _recover_until:
 		return Vector2(-0.6, _recover_w)
 
@@ -90,7 +94,7 @@ func update(bb: Blackboard) -> Vector2:
 		_replan(bb)
 
 	# Waypoint following.
-	while _idx < path.size() - 1 and bb.position.distance_to(path[_idx]) < waypoint_radius:
+	while _idx < path.size() - 1 and _xz_dist(bb.position, path[_idx]) < waypoint_radius:
 		_idx += 1
 	var target: Vector3 = path[_idx] if path.size() > 0 else _goal
 	var target_angle: float = bb.world_to_local_angle(target)

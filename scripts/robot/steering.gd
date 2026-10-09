@@ -11,10 +11,10 @@ static func pick_heading(target_angle: float, ranges: PackedFloat32Array, angles
 		return target_angle
 	var best_a: float = target_angle
 	var best_s: float = -INF
-	for i in n:
+	for i: int in n:
 		var a: float = angles[i]
 		var clearance: float = INF
-		for j in n:
+		for j: int in n:
 			if absf(wrapf(angles[j] - a, -PI, PI)) <= window + 1e-6:
 				clearance = minf(clearance, ranges[j])
 		if clearance >= max_range - 1e-3:
@@ -28,7 +28,7 @@ static func pick_heading(target_angle: float, ranges: PackedFloat32Array, angles
 			best_a = a
 	# If the target direction itself is clear, use it exactly (avoid quantising to ray angles).
 	var target_clear: float = INF
-	for j in n:
+	for j: int in n:
 		if absf(wrapf(angles[j] - target_angle, -PI, PI)) <= window + 1e-6:
 			target_clear = minf(target_clear, ranges[j])
 	if target_clear >= avoid_dist:
