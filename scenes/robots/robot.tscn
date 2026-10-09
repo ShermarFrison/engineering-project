@@ -1,10 +1,11 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/robot/drive.gd" id="drive"]
 [ext_resource type="Script" path="res://scripts/robot/sensors/lidar.gd" id="lidar"]
 [ext_resource type="Script" path="res://scripts/robot/sensors/vision_cone.gd" id="vision"]
 [ext_resource type="Script" path="res://scripts/robot/sensors/ultrasonic.gd" id="ultrasonic"]
 [ext_resource type="Script" path="res://scripts/robot/sensors/bumper.gd" id="bumper"]
+[ext_resource type="Script" path="res://scripts/robot/sensors/debug_overlay.gd" id="overlay"]
 
 [sub_resource type="PhysicsMaterial" id="frictionless"]
 friction = 0.0
@@ -93,3 +94,6 @@ script = ExtResource("ultrasonic")
 
 [node name="Bumper" type="Node3D" parent="Sensors"]
 script = ExtResource("bumper")
+
+[node name="DebugOverlay" type="MeshInstance3D" parent="."]
+script = ExtResource("overlay")
