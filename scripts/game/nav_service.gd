@@ -4,7 +4,7 @@
 class_name NavService
 extends Node
 
-@export var agent_radius: float = 0.35
+@export var agent_radius: float = 0.5
 @export var cell_size: float = 0.25
 
 var _region: NavigationRegion3D
@@ -15,7 +15,7 @@ var _ready_flag: bool = false
 
 func bake(source_root: Node3D) -> void:
 	var nm := NavigationMesh.new()
-	nm.agent_radius = agent_radius
+	nm.agent_radius = ceilf(agent_radius / cell_size) * cell_size  # snap: avoids engine precision warning
 	nm.cell_size = cell_size
 	nm.cell_height = 0.25
 	nm.agent_height = 0.5
@@ -25,7 +25,8 @@ func bake(source_root: Node3D) -> void:
 	NavigationServer3D.parse_source_geometry_data(nm, src, source_root)
 	NavigationServer3D.bake_from_source_geometry_data(nm, src)
 	if _region:
-		_region.queue_free()
+		remove_child(_region)
+		_region.free()
 	_region = NavigationRegion3D.new()
 	_region.navigation_mesh = nm
 	add_child(_region)
