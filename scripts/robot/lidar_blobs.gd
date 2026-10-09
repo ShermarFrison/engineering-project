@@ -14,14 +14,15 @@ static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_r
 	if n < 3:
 		return out
 	var hit := func(i: int) -> bool: return ranges[posmod(i, n)] < max_range - 1e-3
-	# Find a start index that is not inside a cluster, to handle wraparound.
+	# Start at a cluster boundary (unhit ray, unhit predecessor, or a range jump) so wraparound works.
 	var start: int = -1
-	for i in n:
-		if not hit.call(i):
-			start = i
+	for s_i: int in n:
+		var prev: int = posmod(s_i - 1, n)
+		if not hit.call(s_i) or not hit.call(prev) or absf(ranges[s_i] - ranges[prev]) >= break_gap:
+			start = s_i
 			break
 	if start == -1:
-		return out  # everything hit: one giant ring, no blobs
+		return out  # uniform ring: no boundary, no blobs
 	var i: int = start
 	var visited: int = 0
 	while visited < n:
@@ -43,8 +44,8 @@ static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_r
 		var after: int = posmod(idxs[-1] + 1, n)
 		var first_r: float = ranges[idxs[0]]
 		var last_r: float = ranges[idxs[-1]]
-		var free_before: bool = (not hit.call(before)) or ranges[before] - first_r > break_gap
-		var free_after: bool = (not hit.call(after)) or ranges[after] - last_r > break_gap
+		var free_before: bool = (not hit.call(before)) or ranges[before] - first_r >= break_gap
+		var free_after: bool = (not hit.call(after)) or ranges[after] - last_r >= break_gap
 		if not (free_before and free_after):
 			continue
 		var p0 := Vector2(first_r * cos(angles[idxs[0]]), first_r * sin(angles[idxs[0]]))
@@ -55,7 +56,7 @@ static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_r
 		var sum_d: float = 0.0
 		var sx: float = 0.0
 		var sy: float = 0.0
-		for idx in idxs:
+		for idx: int in idxs:
 			sum_d += ranges[idx]
 			sx += cos(angles[idx])
 			sy += sin(angles[idx])
@@ -72,10 +73,10 @@ static func detect(ranges: PackedFloat32Array, angles: PackedFloat32Array, max_r
 static func off_walls(blobs: Array[Dictionary], bb: Blackboard, walls: Array[Rect2],
 		margin: float = 0.1) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for b in blobs:
+	for b: Dictionary in blobs:
 		var p: Vector3 = bb.position + bb.local_to_world_dir(b["angle"]) * b["distance"]
 		var on_wall: bool = false
-		for w in walls:
+		for w: Rect2 in walls:
 			if w.grow(margin).has_point(Vector2(p.x, p.z)):
 				on_wall = true
 				break

@@ -17,7 +17,7 @@ func sense(bb: Blackboard) -> void:
 	var half_fov: float = deg_to_rad(fov_deg) * 0.5
 	var space := _space()
 	var exclude: Array[RID] = [body.get_rid()]  # never let our own mast block the ray
-	for node in get_tree().get_nodes_in_group("robots"):
+	for node: Node in get_tree().get_nodes_in_group("robots"):
 		var other := node as DriveBody
 		if other == null or other == body:
 			continue
