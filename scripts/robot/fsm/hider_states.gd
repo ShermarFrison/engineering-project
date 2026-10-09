@@ -25,10 +25,10 @@ static func blob_approaching(bb: Blackboard, ctx: Context) -> bool:
 	for blob: Dictionary in bb.blobs:
 		d = minf(d, float(blob["distance"]))
 	if d == INF:
-		ctx._last_blob_dist = INF
-		ctx._last_blob_time = bb.time
+		ctx._last_blob_dist = INF  # samples taken after a gap are stored, never compared
 		return false
 	var approaching: bool = d <= ctx.threat_blob_dist \
+		and is_finite(ctx._last_blob_dist) \
 		and ctx._last_blob_dist - d >= ctx.threat_approach_delta \
 		and bb.time - ctx._last_blob_time <= ctx.threat_window
 	if bb.time - ctx._last_blob_time >= ctx.threat_window or ctx._last_blob_dist == INF:

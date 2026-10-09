@@ -18,10 +18,6 @@ static func create(kind: String) -> HiderStrategy:
 			return StaticHider.new()
 
 
-func _threat(bb: Blackboard, ctx: HiderStates.Context) -> Vector3:
-	return bb.seeker_last_seen_pos if bb.seeker_last_seen_time > -INF else ctx.seeker_spawn
-
-
 ## Random pick among the top-K hiding spots, skipping those within avoid_radius of avoid.
 static func choose_spot(bb: Blackboard, ctx: HiderStates.Context, avoid: Vector3, avoid_radius: float) -> Vector3:
 	var threat: Vector3 = bb.seeker_last_seen_pos if bb.seeker_last_seen_time > -INF else ctx.seeker_spawn

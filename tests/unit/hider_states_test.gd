@@ -122,6 +122,29 @@ func test_stationary_blob_does_not_trigger_relocate() -> void:
 	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(0)
 
 
+func test_flickering_stationary_blob_does_not_trigger_relocate() -> void:
+	var ctx := _ctx("static")
+	var bb := _bb()
+	var fsm := _start(ctx, bb, "Hide")
+	for i: int in 180:
+		if i % 30 == 29:
+			bb.blobs = []
+		else:
+			bb.blobs = [{"angle": 0.0, "distance": 2.0, "width": 0.3}]
+		_tick(fsm, bb, 1.0 / 60.0)
+	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(0)
+
+
+func test_blob_reappearing_stationary_does_not_trigger_relocate() -> void:
+	var ctx := _ctx("static")
+	var bb := _bb()
+	var fsm := _start(ctx, bb, "Hide")
+	_tick(fsm, bb, 2.0)
+	bb.blobs = [{"angle": 0.0, "distance": 2.0, "width": 0.3}]
+	_tick(fsm, bb, 2.0)
+	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(0)
+
+
 func test_approaching_blob_triggers_relocate() -> void:
 	var ctx := _ctx("static")
 	var bb := _bb()
