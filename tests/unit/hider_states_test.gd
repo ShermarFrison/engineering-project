@@ -103,11 +103,55 @@ func test_hide_to_relocate_on_approaching_blob() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
 	var fsm := _start(ctx, bb, "Hide")
-	bb.blobs = [{"angle": 0.0, "distance": ctx.threat_blob_dist - 0.5, "width": 0.3}]
+	# first sample (far), then a >= 0.5 m drop within the window
+	bb.blobs = [{"angle": 0.0, "distance": ctx.threat_blob_dist, "width": 0.3}]
+	_tick(fsm, bb, 0.05)
+	bb.blobs = [{"angle": 0.0, "distance": ctx.threat_blob_dist - 0.8, "width": 0.3}]
 	_tick(fsm, bb, 0.05)
 	assert_str(fsm.current_name()).is_equal("GoToSpot")
 	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(1)
 	assert_int(fsm.transition_counts.get("Relocate->GoToSpot", 0)).is_equal(1)
+
+
+func test_stationary_blob_does_not_trigger_relocate() -> void:
+	var ctx := _ctx("static")
+	var bb := _bb()
+	var fsm := _start(ctx, bb, "Hide")
+	bb.blobs = [{"angle": 0.0, "distance": 2.0, "width": 0.3}]
+	_tick(fsm, bb, 3.0)
+	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_equal(0)
+
+
+func test_approaching_blob_triggers_relocate() -> void:
+	var ctx := _ctx("static")
+	var bb := _bb()
+	var fsm := _start(ctx, bb, "Hide")
+	for i: int in 120:
+		bb.blobs = [{"angle": 0.0, "distance": lerpf(4.0, 1.5, float(i) / 119.0), "width": 0.3}]
+		_tick(fsm, bb, 1.0 / 60.0)
+	assert_int(fsm.transition_counts.get("Hide->Relocate", 0)).is_greater_equal(1)
+
+
+func test_static_hiders_differ_with_different_seeds() -> void:
+	var ctx := _ctx("static")
+	var picks: Array[Vector3] = []
+	for seed_value: int in range(1, 6):
+		var bb := _bb()
+		bb.rng.seed = seed_value
+		var p: Vector3 = ctx.strategy.pick_spot(bb, ctx)
+		if not picks.has(p):
+			picks.append(p)
+	assert_int(picks.size()).is_greater_equal(2)
+
+
+func test_relocate_leaves_current_spot() -> void:
+	var ctx := _ctx("static")
+	var bb := _bb()
+	bb.rng.seed = 7
+	bb.position = ctx.strategy.pick_spot(bb, ctx)
+	var fsm := _start(ctx, bb, "Hide")
+	fsm.force("Relocate", bb)
+	assert_float(bb.goal_pos.distance_to(bb.position)).is_greater(1.5)
 
 
 func test_flee_to_pickspot_after_seeker_unseen_timeout() -> void:

@@ -80,3 +80,12 @@ func test_flee_spot_moves_away_from_threat() -> void:
 	var threat := Vector3(1, 0, 0)
 	var s: Vector3 = g.pick_flee_spot(from, threat)
 	assert_float(s.distance_to(threat)).is_greater(from.distance_to(threat))
+
+
+func test_pick_hiding_spots_best_first() -> void:
+	var g := _grid()
+	var threat := Vector3(-7, 0, 0)
+	var spots: Array[Vector3] = g.pick_hiding_spots(threat, 6.0, 3)
+	assert_int(spots.size()).is_equal(3)
+	assert_vector(spots[0]).is_equal(g.pick_hiding_spot(threat, 6.0))
+	assert_bool(spots[0] != spots[1] and spots[1] != spots[2] and spots[0] != spots[2]).is_true()

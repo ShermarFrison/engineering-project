@@ -12,13 +12,29 @@ class Context extends RefCounted:
 	var min_hide_dist: float = 8.0
 	var last_relocate_time: float = 0.0
 	var flee_refresh: float = 1.0
+	var threat_approach_delta: float = 0.5
+	var threat_window: float = 1.0
+	var _last_blob_dist: float = INF
+	var _last_blob_time: float = -INF
 
 
-static func threat_blob(bb: Blackboard, ctx: Context) -> bool:
+## True when the nearest blob is within threat_blob_dist and closed in by
+## threat_approach_delta within threat_window (samples taken once per window).
+static func blob_approaching(bb: Blackboard, ctx: Context) -> bool:
+	var d: float = INF
 	for blob: Dictionary in bb.blobs:
-		if blob["distance"] < ctx.threat_blob_dist:
-			return true
-	return false
+		d = minf(d, float(blob["distance"]))
+	if d == INF:
+		ctx._last_blob_dist = INF
+		ctx._last_blob_time = bb.time
+		return false
+	var approaching: bool = d <= ctx.threat_blob_dist \
+		and ctx._last_blob_dist - d >= ctx.threat_approach_delta \
+		and bb.time - ctx._last_blob_time <= ctx.threat_window
+	if bb.time - ctx._last_blob_time >= ctx.threat_window or ctx._last_blob_dist == INF:
+		ctx._last_blob_dist = d
+		ctx._last_blob_time = bb.time
+	return approaching
 
 
 class PickSpot extends FSMState:
@@ -63,13 +79,14 @@ class Hide extends FSMState:
 
 	func enter(bb: Blackboard) -> void:
 		bb.goal_active = false
+		ctx.last_relocate_time = bb.time
 
 	func update(bb: Blackboard, _dt: float) -> String:
 		if not bb.seen_seeker().is_empty():
 			reason = "seeker seen"
 			return "Flee"
-		if HiderStates.threat_blob(bb, ctx):
-			reason = "lidar blob near"
+		if HiderStates.blob_approaching(bb, ctx):
+			reason = "blob approaching"
 			return "Relocate"
 		if ctx.strategy.wants_relocate(bb, ctx):
 			reason = "strategy relocate"
@@ -112,7 +129,7 @@ class Relocate extends FSMState:
 
 	func enter(bb: Blackboard) -> void:
 		ctx.last_relocate_time = bb.time
-		bb.goal_pos = ctx.strategy.pick_spot(bb, ctx)
+		bb.goal_pos = HiderStrategy.choose_spot(bb, ctx, bb.position, 1.5)
 		bb.goal_active = true
 
 	func update(_bb: Blackboard, _dt: float) -> String:

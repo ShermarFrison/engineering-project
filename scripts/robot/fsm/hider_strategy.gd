@@ -2,6 +2,8 @@
 class_name HiderStrategy
 extends RefCounted
 
+const TOP_K := 3
+
 var kind: String = "base"
 
 
@@ -9,7 +11,10 @@ static func create(kind: String) -> HiderStrategy:
 	match kind:
 		"dynamic":
 			return DynamicHider.new()
+		"static":
+			return StaticHider.new()
 		_:
+			push_error("unknown hider strategy: " + kind)
 			return StaticHider.new()
 
 
@@ -17,8 +22,21 @@ func _threat(bb: Blackboard, ctx: HiderStates.Context) -> Vector3:
 	return bb.seeker_last_seen_pos if bb.seeker_last_seen_time > -INF else ctx.seeker_spawn
 
 
+## Random pick among the top-K hiding spots, skipping those within avoid_radius of avoid.
+static func choose_spot(bb: Blackboard, ctx: HiderStates.Context, avoid: Vector3, avoid_radius: float) -> Vector3:
+	var threat: Vector3 = bb.seeker_last_seen_pos if bb.seeker_last_seen_time > -INF else ctx.seeker_spawn
+	var all: Array[Vector3] = ctx.grid.pick_hiding_spots(threat, ctx.min_hide_dist, TOP_K)
+	var cands: Array[Vector3] = []
+	for c: Vector3 in all:
+		if c.distance_to(avoid) >= avoid_radius:
+			cands.append(c)
+	if cands.is_empty():
+		cands = all
+	return cands[bb.rng.randi_range(0, cands.size() - 1)]
+
+
 func pick_spot(bb: Blackboard, ctx: HiderStates.Context) -> Vector3:
-	return ctx.grid.pick_hiding_spot(_threat(bb, ctx), ctx.min_hide_dist)
+	return choose_spot(bb, ctx, bb.position, 0.0)
 
 
 func wants_relocate(_bb: Blackboard, _ctx: HiderStates.Context) -> bool:
@@ -39,11 +57,7 @@ class DynamicHider extends HiderStrategy:
 		kind = "dynamic"
 
 	func pick_spot(bb: Blackboard, ctx: HiderStates.Context) -> Vector3:
-		var threat: Vector3 = _threat(bb, ctx)
-		var spot: Vector3 = ctx.grid.pick_hiding_spot(threat, ctx.min_hide_dist)
-		if spot.distance_to(bb.position) < 1.5:
-			spot = ctx.grid.pick_flee_spot(bb.position, threat)
-		return spot
+		return HiderStrategy.choose_spot(bb, ctx, bb.position, 1.5)
 
 	func wants_relocate(bb: Blackboard, ctx: HiderStates.Context) -> bool:
 		return bb.time - ctx.last_relocate_time >= relocate_period

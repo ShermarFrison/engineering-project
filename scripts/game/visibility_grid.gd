@@ -91,20 +91,31 @@ func pick_patrol_target(from: Vector3, now: float) -> Vector3:
 
 
 func pick_hiding_spot(threat: Vector3, min_threat_dist: float) -> Vector3:
-	var best: int = -1
-	var best_s: float = -INF
+	return pick_hiding_spots(threat, min_threat_dist, 1)[0]
+
+
+## Best `count` hiding candidates, best first; same scoring and relaxation as pick_hiding_spot.
+func pick_hiding_spots(threat: Vector3, min_threat_dist: float, count: int) -> Array[Vector3]:
+	var scored: Array[Vector2] = []  # x = score, y = cell index
 	var min_d: float = min_threat_dist
-	while best == -1 and min_d >= 0.0:
+	while scored.is_empty() and min_d >= 0.0:
 		for i: int in centers.size():
 			var dt: float = centers[i].distance_to(threat)
 			if dt < min_d:
 				continue
 			var s: float = -3.0 * openness[i] - (2.0 if visible_from_spawn[i] else 0.0) + 0.05 * dt
-			if s > best_s:
-				best_s = s
-				best = i
+			scored.append(Vector2(s, float(i)))
 		min_d -= 2.0  # relax if nothing qualified
-	return centers[maxi(best, 0)]
+	var out: Array[Vector3] = []
+	if scored.is_empty():
+		out.append(centers[0])
+		return out
+	# stable best-first: higher score first, lower index on ties (matches the strict '>' scan)
+	scored.sort_custom(func(a: Vector2, b: Vector2) -> bool:
+		return a.x > b.x or (a.x == b.x and a.y < b.y))
+	for k: int in mini(maxi(count, 1), scored.size()):
+		out.append(centers[int(scored[k].y)])
+	return out
 
 
 func pick_flee_spot(from: Vector3, threat: Vector3) -> Vector3:
