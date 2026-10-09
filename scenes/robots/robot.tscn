@@ -1,6 +1,7 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/robot/drive.gd" id="drive"]
+[ext_resource type="Script" path="res://scripts/robot/sensors/lidar.gd" id="lidar"]
 
 [sub_resource type="PhysicsMaterial" id="frictionless"]
 friction = 0.0
@@ -73,5 +74,8 @@ surface_material_override/0 = SubResource("wheel_mat")
 
 [node name="Sensors" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
+
+[node name="Lidar" type="Node3D" parent="Sensors"]
+script = ExtResource("lidar")
 
 [node name="Brain" type="Node" parent="."]
