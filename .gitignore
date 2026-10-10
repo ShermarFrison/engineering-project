@@ -5,3 +5,6 @@ Godot_v*-stable_linux.x86_64
 reports/
 experiments/*.csv
 experiments/*.png
+experiments/*.translation
+experiments/*.csv.import
+experiments/*.png.import

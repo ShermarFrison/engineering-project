@@ -42,6 +42,12 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    first region was added); the exact mechanism is not confirmed.
    Workaround in use: the determinism tests and `BatchRunner` play one
    discarded warm-up round first.
+   Related observation (Task 19, editor F5 run, not headless, not yet replicated):
+   the editor's first round (seed 1) matched the batch row for seed 1 exactly
+   (duration 84.833, seeker distance 78.473, 27 transitions), while the four
+   rounds started afterwards with R (seeds 2-5, `GameManager.start_round` again in
+   the same process) all differed from their batch rows (e.g. seed 2: 44.050 s vs
+   45.383 s; seed 5: 2 caught vs 3). Cause not investigated.
 7. **`Engine.time_scale` scales the physics step, it does not add ticks.**
    With `time_scale = 8` alone, headless still runs 60 physics ticks per real
    second, each with `delta = 0.13333` (4 probe runs, all 120 ticks in 2 s;
