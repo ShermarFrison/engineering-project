@@ -56,10 +56,13 @@ Arguments: config resource, rounds per variant, output CSV (relative paths are r
 project root; absolute paths work too). Optional flags after them:
 
 - `--seed-offset N` shifts the seeds, so a long batch can be split over parallel processes
-  (for example 5 processes of 6 rounds with offsets 0, 6, 12, 18, 24). The rows are the same
-  as from a single process.
+  (for example 5 processes of 6 rounds with offsets 0, 6, 12, 18, 24). Rows are reproducible
+  for an identical command line, but a seed's row can change with the rounds that ran before
+  it in the same process (see `NOTES/godot-headless-gotchas.md` item 8). Report which split
+  you used, and use the same split when reproducing.
 - `--log-transitions` also writes `<out>_transitions.csv` with every FSM transition.
-- `--time-scale S` (default 8) simulated seconds per frame; the physics step stays 1/60 s.
+- `--time-scale S` (default 8) speed factor: S simulated seconds per real second when real-time
+  synced, or S/60 simulated seconds per frame under `--fixed-fps 60`; the physics step stays 1/60 s.
 
 `run_experiment.sh` passes the engine flag `--fixed-fps 60`, which drops real-time sync so the
 run is CPU-bound. Rows do not depend on `--fixed-fps` or `--time-scale`; the runner checks the

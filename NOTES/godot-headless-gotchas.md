@@ -65,3 +65,17 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    for `--fixed-fps 60` at scale 8 (49.5 s and, in a fresh process, 48.5 s),
    `--fixed-fps 60` at scale 1 (49.5 s), and real-time at scale 8 without
    `--fixed-fps` (101.6 s).
+
+8. **A round's row can depend on the rounds that ran before it in the same process.**
+   Observed on both the pre-fix build (82ad62c) and the fix-wave build (c9416e9) by the
+   scoped re-reviewer, 2026-10-10: `strategies.tres` with 1 round per variant and with 2
+   rounds per variant give a different row for `dynamic_hiders` seed 1000 (8 fields on the
+   fix-wave build: duration 110.133 vs 110.167, seeker distance 140.091 vs 140.116, catch
+   times; 20 fields pre-fix, including hiders_caught 3 vs 2). `static_hiders` 1000 was
+   identical in both, and a `--seed-offset 1` single round matched the 2-round rows for
+   seed 1001, so the effect is intermittent. Each command line is itself reproducible
+   (3 of 3 processes identical in every case). Cause not diagnosed; the arena, navmesh and
+   physics space persist across rounds in one process, so state carried over between rounds
+   is the suspect. Consequence: compare rows only between identical command lines (same
+   rounds, same `--seed-offset` split), and do not expect an R-restarted editor round to
+   match its batch row. Separate from item 6 (start call site), which is fixed.

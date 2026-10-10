@@ -342,6 +342,15 @@ caught 6 / 6 on both builds (3 processes each), so it does not discriminate.
   side observation above (rounds restarted with R differing from their batch rows) fits this
   call-site effect (R starts a round from an input callback); it was not re-checked in the
   editor. See `NOTES/godot-headless-gotchas.md` item 6.
+- Residual, found by the scoped re-review: a seed's row can still depend on the rounds that
+  ran before it in the same process (`strategies.tres` 1 round vs 2 rounds per variant:
+  `dynamic_hiders` 1000 differs in 8 fields; `static_hiders` 1000 identical; each command
+  line reproducible 3 of 3). Pre-existing (the pre-fix build differs in 20 fields on the same
+  comparison). Not diagnosed; recorded as `NOTES/godot-headless-gotchas.md` item 8. The README
+  no longer claims that `--seed-offset` splits reproduce single-process rows.
+- The F1-only build (dc37c6c) was first compared against the pre-fix rows with a single
+  process; two further processes were run afterwards (see the fix-wave adjudication in the
+  SDD ledger) to meet the three-replication rule.
 
 ### Hider spacing A/B
 

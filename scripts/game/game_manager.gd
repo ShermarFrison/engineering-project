@@ -8,7 +8,8 @@ signal round_finished(results: Dictionary)
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const SETUP_MAX_TICKS: int = 600  # 10 s at 60 Hz; the navmesh is normally ready in ~3 ticks
 ## Setup ticks before the first navmesh readiness check. A fixed count, so the tick on which
-## the robots spawn never depends on when the navigation map happens to sync.
+## the robots spawn does not depend on sync timing as long as the navmesh is ready by then
+## (it normally is by tick ~3); if it is not, the spawn tick follows the sync again.
 const SETUP_MIN_TICKS: int = 10
 
 @export var arena_path: NodePath
