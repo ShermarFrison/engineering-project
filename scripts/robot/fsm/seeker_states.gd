@@ -24,11 +24,17 @@ class Context extends RefCounted:
 	var investigated_radius: float = 3.0
 	## Without vision, a blob this close counts as a detection: Patrol/Investigate -> Chase.
 	var chase_blob_dist: float = 3.0
+	## A blind (blob, request -1) catch is requested only inside tag_range - catch_margin: the
+	## blob distance is to the target's mast surface, the catch rule to its centre.
+	var catch_margin: float = 0.3
 	# chase memory
 	var chase_last_pos: Vector3 = Vector3.ZERO
 	var chase_last_seen: float = -INF
-	# blob-only catch that caught nobody (prop or wall end); ignored for investigate_cooldown
+	# blob-only catch that caught nobody (prop or wall end); ignored for dud_ttl
 	var duds: Array[Dictionary] = []
+	## How long a dud blob is ignored; separate from investigate_cooldown, so a near miss on a
+	## real hider does not hide it for a whole minute.
+	var dud_ttl: float = 10.0
 
 
 static func _remember(list: Array[Dictionary], pos: Vector3, now: float, ttl: float) -> void:
@@ -67,7 +73,7 @@ static func interesting_blob(bb: Blackboard, ctx: Context, respect_cooldown: boo
 				break
 		if skip:
 			continue
-		if SeekerStates._near_any(ctx.duds, p, 1.0, bb.time, ctx.investigate_cooldown):
+		if SeekerStates._near_any(ctx.duds, p, 1.0, bb.time, ctx.dud_ttl):
 			continue
 		if respect_cooldown and SeekerStates._near_any(ctx.investigated, p, ctx.investigated_radius, bb.time, ctx.investigate_cooldown):
 			continue
@@ -215,14 +221,14 @@ class Chase extends FSMState:
 		bb.goal_active = true
 
 	## Shared pursuit step for a seen hider (request = its id) or, without vision, a
-	## blob (request = -1): remember it, steer at it, request a catch inside tag range.
-	func _pursue(bb: Blackboard, target_pos: Vector3, request: int) -> String:
+	## blob (request = -1): remember it, steer at it, request a catch inside catch_dist.
+	func _pursue(bb: Blackboard, target_pos: Vector3, request: int, catch_dist: float) -> String:
 		ctx.chase_last_pos = target_pos
 		ctx.chase_last_seen = bb.time
 		bb.goal_pos = target_pos
 		bb.goal_active = true
 		var d: float = Vector2(bb.position.x, bb.position.z).distance_to(Vector2(target_pos.x, target_pos.z))
-		if d < ctx.tag_range:
+		if d < catch_dist:
 			bb.catch_request = request
 			reason = "in tag range"
 			return "Catch"
@@ -232,11 +238,11 @@ class Chase extends FSMState:
 		SeekerStates.mark_viewed(bb, ctx)
 		var target: Dictionary = SeekerStates.nearest_seen_hider(bb)
 		if not target.is_empty():
-			return _pursue(bb, target["position"], target["id"])
+			return _pursue(bb, target["position"], target["id"], ctx.tag_range)
 		if not bb.vision_enabled:
 			var blob: Dictionary = SeekerStates.interesting_blob(bb, ctx, false)
 			if not blob.is_empty():
-				return _pursue(bb, SeekerStates.blob_world_pos(bb, blob), -1)
+				return _pursue(bb, SeekerStates.blob_world_pos(bb, blob), -1, ctx.tag_range - ctx.catch_margin)
 		# Target lost (or never acquired in this Chase): back to Patrol (spec).
 		if ctx.chase_last_seen == -INF:
 			if bb.time - _entered > ctx.lose_timeout:
@@ -261,7 +267,10 @@ class Catch extends FSMState:
 	func enter(bb: Blackboard) -> void:
 		_entered = bb.time
 		_caught_before = bb.caught_ids.size()
-		bb.goal_active = false
+		# Keep closing on the target while the catch is checked, instead of stopping dead
+		# just outside tag range.
+		bb.goal_pos = ctx.chase_last_pos
+		bb.goal_active = true
 
 	func update(bb: Blackboard, _dt: float) -> String:
 		if bb.time - _entered >= ctx.catch_delay:
@@ -272,7 +281,7 @@ class Catch extends FSMState:
 	func exit(bb: Blackboard) -> void:
 		if bb.catch_request == -1 and bb.caught_ids.size() == _caught_before:
 			# Blind catch found no hider: the blob was a prop or a wall end. Ignore it for a while.
-			SeekerStates._remember(ctx.duds, ctx.chase_last_pos, bb.time, ctx.investigate_cooldown)
+			SeekerStates._remember(ctx.duds, ctx.chase_last_pos, bb.time, ctx.dud_ttl)
 		bb.catch_request = 0
 
 

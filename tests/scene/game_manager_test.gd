@@ -90,6 +90,27 @@ func test_seeker_catches_adjacent_visible_hider() -> void:
 	assert_int(res["seeker"]["transition_counts"].get("Chase->Catch", 0)).is_greater_equal(1)
 
 
+## End to end blind catch: lidar (blobs) and bumper only, hider frozen 2.5 m ahead in the
+## open. The seeker must close inside tag range itself (blob distance is to the mast surface).
+func test_lidar_only_seeker_catches_frozen_hider_in_open_floor() -> void:
+	var gm := _game()
+	var cfg := _short_config()
+	cfg.head_start = 0.5
+	cfg.round_time = 15.0
+	cfg.prop_count = 0
+	cfg.seeker_sensors = PackedStringArray(["lidar", "bumper"])
+	gm.start_round(cfg)
+	assert_bool(await _wait_setup(gm)).is_true()
+	var hider: RobotBrain = gm.hiders[0]
+	hider.active = false
+	hider.body.global_position = gm.seeker.body.global_position + gm.seeker.body.forward() * 2.5
+	assert_bool(await ticks_until(func() -> bool: return gm.seeker.bb.seeking_allowed, 60)).is_true()
+	assert_bool(await _run_to_end(gm, cfg)).append_failure_message("phase %s" % gm.phase).is_true()
+	var res: Dictionary = gm.results()
+	assert_int(res["hiders_caught"]).append_failure_message("seeker transitions %s" % [gm.seeker.fsm.transitions]).is_equal(1)
+	assert_float(res["hiders"][0]["catch_time"]).is_between(0.0, 15.0)
+
+
 func test_blind_seeker_touching_hider_does_not_catch() -> void:
 	var gm := _game()
 	var cfg := _short_config()

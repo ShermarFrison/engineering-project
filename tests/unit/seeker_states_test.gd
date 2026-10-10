@@ -218,8 +218,11 @@ func test_catch_to_patrol_after_delay_and_clears_request() -> void:
 	var ctx := _ctx()
 	var bb := _bb()
 	bb.catch_request = 42
+	ctx.chase_last_pos = Vector3(0, 0, -1.2)
 	var fsm := _start(ctx, bb, "Catch")
-	assert_bool(bb.goal_active).is_false()
+	# The seeker keeps closing on the target during Catch.
+	assert_bool(bb.goal_active).is_true()
+	assert_float(bb.goal_pos.distance_to(Vector3(0, 0, -1.2))).is_less(0.01)
 	_tick(fsm, bb, ctx.catch_delay + 0.1)
 	assert_str(fsm.current_name()).is_equal("Patrol")
 	assert_int(bb.catch_request).is_equal(0)
@@ -277,3 +280,33 @@ func test_two_blobs_do_not_ping_pong_investigate() -> void:
 	bb.blobs = [{"angle": 0.0, "distance": 4.0, "width": 0.3}, {"angle": 1.0, "distance": 5.0, "width": 0.3}]
 	_tick(fsm, bb, 9.0)
 	assert_bool(int(fsm.transition_counts.get("Patrol->Investigate", 0)) <= 2).is_true()
+
+
+func test_blind_catch_requested_inside_margin_only() -> void:
+	var ctx := _ctx()
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(ctx, bb, "Chase")
+	bb.blobs = [{"angle": 0.0, "distance": 1.6, "width": 0.3}]  # blob in chase range, outside 1.2
+	_tick(fsm, bb, 0.1)
+	assert_str(fsm.current_name()).is_equal("Chase")
+	assert_int(bb.catch_request).is_equal(0)
+	bb.blobs = [{"angle": 0.0, "distance": 1.1, "width": 0.3}]  # < tag_range - catch_margin = 1.2
+	_tick(fsm, bb, 0.05)
+	assert_str(fsm.current_name()).is_equal("Catch")
+	assert_int(bb.catch_request).is_equal(-1)
+
+
+func test_dud_expires_after_dud_ttl_not_investigate_cooldown() -> void:
+	var ctx := _ctx()
+	var bb := _bb()
+	bb.vision_enabled = false
+	var fsm := _start(ctx, bb, "Chase")
+	bb.blobs = [{"angle": 0.0, "distance": 1.0, "width": 0.3}]
+	_tick(fsm, bb, 0.05)
+	_tick(fsm, bb, ctx.catch_delay + 0.1)  # blind catch caught nobody: dud
+	assert_int(ctx.duds.size()).is_equal(1)
+	assert_dict(SeekerStates.interesting_blob(bb, ctx, false)).is_empty()
+	bb.time += ctx.dud_ttl  # time passes (no FSM ticks, so no new Chase on the same blob)
+	assert_float(ctx.dud_ttl).is_less(ctx.investigate_cooldown)
+	assert_dict(SeekerStates.interesting_blob(bb, ctx, false)).is_not_empty()
