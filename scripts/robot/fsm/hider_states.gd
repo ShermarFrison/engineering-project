@@ -10,6 +10,8 @@ class Context extends RefCounted:
 	var flee_clear_timeout: float = 4.0
 	var threat_blob_dist: float = 4.0
 	var min_hide_dist: float = 8.0
+	## Spots within this distance of another hider's last known position are skipped (0 = off).
+	var hider_spacing: float = 3.0
 	var last_relocate_time: float = 0.0
 	var flee_refresh: float = 1.0
 	var threat_approach_delta: float = 0.5

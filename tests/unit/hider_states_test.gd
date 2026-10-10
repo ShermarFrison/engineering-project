@@ -235,3 +235,47 @@ func test_dynamic_pick_spot_avoids_current_position() -> void:
 func test_strategy_factory_kinds() -> void:
 	assert_str(HiderStrategy.create("static").kind).is_equal("static")
 	assert_str(HiderStrategy.create("dynamic").kind).is_equal("dynamic")
+
+
+func _xz_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
+func test_choose_spot_skips_spots_near_a_known_hider() -> void:
+	var ctx := _ctx("static")
+	var top: Array[Vector3] = ctx.grid.pick_hiding_spots(ctx.seeker_spawn, ctx.min_hide_dist, HiderStrategy.TOP_K)
+	var other: Vector3 = top[0]
+	var far_left: int = 0
+	for c: Vector3 in top:
+		if _xz_dist(c, other) >= ctx.hider_spacing:
+			far_left += 1
+	assert_int(far_left).is_greater(0)  # the filter leaves something to pick from
+	for seed_value: int in range(1, 21):
+		var bb := _bb()
+		bb.rng.seed = seed_value
+		bb.last_known[123] = {"position": other, "time": 0.0, "role": "hider"}
+		var p: Vector3 = HiderStrategy.choose_spot(bb, ctx, bb.position, 0.0)
+		assert_float(_xz_dist(p, other)).is_greater_equal(ctx.hider_spacing)
+
+
+func test_choose_spot_ignores_known_seeker_for_spacing() -> void:
+	var ctx := _ctx("static")
+	var top: Array[Vector3] = ctx.grid.pick_hiding_spots(ctx.seeker_spawn, ctx.min_hide_dist, HiderStrategy.TOP_K)
+	var hits: int = 0
+	for seed_value: int in range(1, 41):
+		var bb := _bb()
+		bb.rng.seed = seed_value
+		bb.last_known[7] = {"position": top[0], "time": 0.0, "role": "seeker"}
+		if HiderStrategy.choose_spot(bb, ctx, bb.position, 0.0) == top[0]:
+			hits += 1
+	assert_int(hits).is_greater(0)
+
+
+func test_choose_spot_falls_back_to_full_list_when_all_crowded() -> void:
+	var ctx := _ctx("static")
+	var top: Array[Vector3] = ctx.grid.pick_hiding_spots(ctx.seeker_spawn, ctx.min_hide_dist, HiderStrategy.TOP_K)
+	var bb := _bb()
+	bb.rng.seed = 3
+	for i: int in top.size():
+		bb.last_known[1000 + i] = {"position": top[i], "time": 0.0, "role": "hider"}
+	assert_bool(top.has(HiderStrategy.choose_spot(bb, ctx, bb.position, 0.0))).is_true()
