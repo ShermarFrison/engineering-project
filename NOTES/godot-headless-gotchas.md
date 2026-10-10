@@ -27,3 +27,26 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    `assert_bool`, `assert_int`, `assert_dict`. Scene tests: `scene_runner(scene)`,
    `await runner.simulate_frames(n)`, `runner.scene()`.
 5. `OS.get_cmdline_user_args()` returns everything after `--` as expected.
+6. **Open question: the first round played in a process differs from later
+   same-seed rounds.** `GameManager.start_round` with the same seed three times
+   back to back in one scene (head_start 2, round_time 5, 2 hiders, 6 props,
+   seed 7): round 1 gives seeker/hider distances 7.399 / 11.849 / 12.644,
+   rounds 2 and 3 both give 6.940 / 11.960 / 12.108 (all other columns equal).
+   Reproduced in 3 separate processes (and in 4 more by an earlier probe with
+   seed 21); round 1 is itself identical across processes. One A/B hypothesis
+   test (3 processes each arm): calling `arena.nav.bake(arena.static_root)` once
+   and waiting for `nav.is_ready()` before round 1 makes round 1 equal to rounds
+   2 and 3; the same idle wait without that pre-bake does not. So the first
+   `NavService.bake` into a fresh navigation map is involved (possibly
+   `map_set_use_async_iterations(map, false)` only taking effect after the
+   first region was added); the exact mechanism is not confirmed.
+   Workaround in use: the determinism tests and `BatchRunner` play one
+   discarded warm-up round first.
+7. **`Engine.time_scale` scales the physics step, it does not add ticks.**
+   With `time_scale = 8` headless still runs 60 physics ticks per real second,
+   each with `delta = 0.1333` (verified 3 times; engine `main.cpp` passes
+   `physics_step * time_scale` to physics, navigation and `_physics_process`).
+   So a time-scaled run simulates with a coarser step than the game and tests
+   (different results, still deterministic). For faster-than-real-time with an
+   unchanged 1/60 step use the CLI flag `--fixed-fps 60`, which drops real-time
+   sync (empty scene: ~400k ticks per real second, delta stays 0.01667).
