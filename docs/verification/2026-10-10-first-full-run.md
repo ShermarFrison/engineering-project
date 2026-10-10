@@ -220,4 +220,131 @@ Not tried, because the stopping rule (all-sensors catch rate ≥ 0.4 over ≥ 5 
 this change: a single-ray far-blob filter, `investigate_timeout`, patrol scoring weights,
 `HiderStrategy.TOP_K`, `Motion.avoid_dist`. The hider convergence noted above is the obvious
 next candidate (`TOP_K`).
-</content>
+
+## After final-review fixes (2026-10-10)
+
+Code as of the final-review fix wave (commits dc37c6c..9c45fb6 on top of 82ad62c): round setup
+runs on GameManager's next physics tick (no warm-up round), blind catches requested inside
+`tag_range - catch_margin` with the seeker still closing, duds expire after 10 s,
+`HiderStrategy.TOP_K` 6 with 3 m hider spacing, vision noise reaches the reported position,
+per-robot RNG streams, held-out seeds (`seed_base = 1000`), exit code 3 on skipped rounds.
+Raw CSVs are not tracked (gitignored); they were written outside the repository.
+
+### Test suite
+
+`./run_tests.sh` → exit 0, 0 WARNING lines, wall clock 2m15s (3 runs during the wave, all exit 0, 175 cases).
+
+```
+Overall Summary: 175 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans |
+```
+
+### Headless batch on held-out seeds 1000–1004
+
+```bash
+./run_experiment.sh res://experiments/ablation.tres 5 <out>/ablation.csv --log-transitions
+python3 -I experiments/analyze.py <out>/ablation.csv
+```
+
+Exit 0, `[batch] 0 rounds skipped`, no ERROR or WARNING lines, wall clock 3m05s.
+
+```
+all_sensors              n=5    catch_rate=0.733 caught/round=2.20 [1.24, 3.16] >=1 catch=1.00 0-or-all=0.60 catch_time mean=70.0 median=79.3 (n=11) dist=122.9
+no_vision                n=5    catch_rate=0.000 caught/round=0.00 [0.00, 0.00] >=1 catch=0.00 0-or-all=1.00 catch_time mean=nan median=nan (n=0) dist=89.2
+no_lidar                 n=5    catch_rate=0.933 caught/round=2.80 [2.41, 3.19] >=1 catch=1.00 0-or-all=0.80 catch_time mean=71.5 median=71.2 (n=14) dist=132.3
+no_ultrasonic_bumper     n=5    catch_rate=0.467 caught/round=1.40 [0.40, 2.40] >=1 catch=0.80 0-or-all=0.40 catch_time mean=55.3 median=48.5 (n=7) dist=113.3
+vision_only              n=5    catch_rate=0.267 caught/round=0.80 [-0.16, 1.76] >=1 catch=0.40 0-or-all=0.60 catch_time mean=82.9 median=83.9 (n=4) dist=119.6
+```
+
+| variant | catch rate | hiders caught / round [95 % CI] | rounds with ≥ 1 catch | median catch time (s, n) | seeker distance (m) | seeker collisions | seeker stuck |
+|---|---|---|---|---|---|---|---|
+| all_sensors | 0.733 | 2.20 [1.24, 3.16] | 5 / 5 | 79.3 (11) | 122.9 | 3.8 | 0.4 |
+| no_vision | 0.000 | 0.00 | 0 / 5 | – | 89.2 | 5.2 | 0.0 |
+| no_lidar | 0.933 | 2.80 [2.41, 3.19] | 5 / 5 | 71.2 (14) | 132.3 | 8.8 | 2.4 |
+| no_ultrasonic_bumper | 0.467 | 1.40 [0.40, 2.40] | 4 / 5 | 48.5 (7) | 113.3 | 4.0 | 4.6 |
+| vision_only | 0.267 | 0.80 [-0.16, 1.76] | 2 / 5 | 83.9 (4) | 119.6 | 3.6 | 11.4 |
+
+Hiders caught per seed (paired):
+
+| seed | all_sensors | no_vision | no_lidar | no_ultrasonic_bumper | vision_only |
+|---|---|---|---|---|---|
+| 1000 | 3 | 0 | 3 | 1 | 0 |
+| 1001 | 3 | 0 | 3 | 2 | 0 |
+| 1002 | 3 | 0 | 3 | 3 | 0 |
+| 1003 | 1 | 0 | 2 | 1 | 2 |
+| 1004 | 1 | 0 | 3 | 0 | 2 |
+
+What I see at n = 5 on the held-out seeds:
+
+- The ordering differs from the tuning-seed run above: `no_lidar` (0.933) is above
+  `all_sensors` (0.733) here. The confidence intervals over 5 rounds overlap widely, so
+  n = 5 does not rank these two; the 30-round batches are needed for that.
+- `no_lidar` still collides most (8.8 per round) and `vision_only` still gets stuck most
+  (11.4 per round).
+- `no_vision` catches nothing. It measures exploration coverage without vision, not
+  detection: see the next section.
+
+```bash
+./run_experiment.sh res://experiments/strategies.tres 2 <out>/det_a.csv
+```
+
+```
+static_hiders            n=2    catch_rate=1.000 caught/round=3.00 [3.00, 3.00] >=1 catch=1.00 0-or-all=1.00 catch_time mean=60.9 median=59.8 (n=6) dist=114.2
+dynamic_hiders           n=2    catch_rate=0.833 caught/round=2.50 [1.52, 3.48] >=1 catch=1.00 0-or-all=0.50 catch_time mean=82.7 median=87.8 (n=5) dist=145.6
+```
+
+### no_vision: closest approach to a hider
+
+One-off measurement (a temporary print in `GameManager`, not committed) of the minimum
+seeker–hider centre distance during the seek phase, `no_vision` only, seeds 1000–1029
+(10 parallel processes × 3 seeds, exit 0, 0 rounds skipped, 0 of 90 hiders caught). The rows
+for seeds 1000–1004 are identical to the clean ablation run above, so the print changed
+nothing.
+
+- Closest approach per round (nearest hider): min 5.24 m, median 13.84 m, max 18.12 m.
+- Per hider: min 5.24 m, median 16.88 m, max 25.02 m.
+- Rounds in which the seeker came within 5 m of any hider: 0 of 30.
+
+The blind seeker detects a hider only as a lidar blob within 3 m (`chase_blob_dist`); it never
+got that close, so `no_vision` = 0 is an exploration-coverage result. The blind catch path
+itself works: see the F2 probe below.
+
+### Blind catch (lidar + bumper seeker vs a frozen hider)
+
+Headless probe script (outside the repository) with no props, seeker sensors lidar + bumper,
+hider frozen at 18 placements around the seeker (centre distance 1.9 / 2.5 / 3.0 m × bearing
+0°, 45°, 90°, 135°, 180°, −90°), 15 s seek each. Three fresh processes per build, identical
+output within each build:
+
+| build | caught | closest approach when caught |
+|---|---|---|
+| pre-fix (82ad62c) | 12 / 18 (3 of 3 processes) | 1.482–1.499 m |
+| after fixes | 18 / 18 (3 of 3 processes) | 1.311–1.376 m |
+
+The pre-fix seeker stopped at the edge of the 1.5 m tag range and missed six placements; with
+the catch margin it closes to ~1.34 m. A narrower 6-placement set (2.0–3.0 m, bearing ≤ 60°)
+caught 6 / 6 on both builds (3 processes each), so it does not discriminate.
+
+### Determinism and start call site
+
+- Determinism spot check, two fresh processes, `strategies.tres` 2 rounds:
+  `diff det_a.csv det_b.csv` → `IDENTICAL` (md5 ec1e786ead5d8971ccd1fe6109511338 for both).
+- `ablation.tres` 1 round per variant, 3 fresh processes: byte-identical
+  (md5 a8368dd291185f8dd1bbf4f98c5dd19f).
+- Pre-fix build (82ad62c, warm-up round) on the same seeds (`--seed-offset 1000`): 2 runs
+  identical to each other (md5 0328736ff2350b067c0c4136a075c680) and byte-identical to the
+  F1-only build (dc37c6c, no warm-up). The current build differs from both in 10–21 fields
+  per row (catches, distances, transitions), as expected from the blind-catch, hider-spacing
+  and per-robot RNG changes.
+- `test_same_seed_same_rows_regardless_of_start_call_site` (same seed started by
+  `call_deferred` and from a `_process` callback) passes in every suite run, and in 3 of 3
+  processes with the two starts swapped. The same test against the pre-fix build fails in
+  3 of 3 processes (hider distances 11.702 / 12.753 vs 10.955 / 12.366). The editor
+  side observation above (rounds restarted with R differing from their batch rows) fits this
+  call-site effect (R starts a round from an input callback); it was not re-checked in the
+  editor. See `NOTES/godot-headless-gotchas.md` item 6.
+
+### Hider spacing A/B
+
+On tuning seeds 0–39 (all sensors, static and dynamic hiders), the 3 m hider spacing lowered
+the fraction of 0-or-all rounds from 49/80 to 40/80 with the catch rate unchanged within
+±0.05; accepted. Per-arm lines in `NOTES/tuning-log.md`.

@@ -38,10 +38,15 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    discarded warm-up round.
    Fix: `start_round` only latches the config (phase becomes "setup" at once); the setup
    runs on GameManager's next `_physics_process`, and the first `nav.is_ready()` check
-   waits a fixed `SETUP_MIN_TICKS = 10` ticks. Verified: the call-site scene test and
-   back-to-back same-seed rounds without warm-up pass in 3 of 3 processes, also with the
-   call-site order swapped; the ablation config, 1 round per variant, gives byte-identical
-   CSVs in 3 fresh processes, identical to the pre-fix build with its warm-up round.
+   waits a fixed `SETUP_MIN_TICKS = 10` ticks. Verified 2026-10-10: the call-site scene
+   test (`determinism_test.gd`) and back-to-back same-seed rounds without warm-up pass in
+   3 of 3 suite runs, and the call-site test with the two starts swapped passes in 3 of 3
+   processes; the same test file against the pre-fix build (82ad62c) fails 3 of 3 with
+   exactly the distances above, and its back-to-back test fails 3 of 3. The ablation config,
+   1 round per variant, gives byte-identical CSVs in 3 fresh processes; the F1-only build
+   (dc37c6c, no warm-up) is byte-identical to the pre-fix build with its warm-up round on
+   the same seeds: the pre-fix batch rows (after the warm-up) equal the fixed build's rows.
+   Later behaviour changes (blind-catch margin, hider spacing, per-robot RNG) change the rows.
 7. **`Engine.time_scale` scales the physics step, it does not add ticks.**
    With `time_scale = 8` alone, headless still runs 60 physics ticks per real
    second, each with `delta = 0.13333` (4 probe runs, all 120 ticks in 2 s;

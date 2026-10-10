@@ -23,3 +23,18 @@ checked for seeds 0-4 against the 5-round ablation CSV). "caught" = hiders caugh
   `pick_patrol_target` weights / `local_mark_radius`, `HiderStrategy.TOP_K` 3 -> 5/6,
   `Motion.avoid_dist` 1.5 -> 2.0. Open issue they would address: catches are mostly all-or-nothing
   per seed (0 or 3 hiders in 19 of 20 seeds) because static hiders still converge on the same nook.
+- 2026-10-10, final-review fix wave (F5a) — **applied by ruling, not A/B tested on its own**:
+  `HiderStrategy.TOP_K` 3 -> 6 (more candidate spots per pick). Present in both arms below.
+- 2026-10-10, final-review fix wave (F5b) — **accepted**: hider spacing, `choose_spot` skips spots
+  within `HiderStates.Context.hider_spacing` = 3.0 m of a hider in `bb.last_known` (off arm:
+  `hider_spacing = 0.0`). Oracle changed for this A/B: build after the F1 fix (no warm-up round
+  any more), all sensors, static and dynamic hiders, 10 parallel processes x 2 seeds.
+  Fraction of rounds with 0-or-all hiders caught, off -> on:
+  seeds 0-19 static 0.70 -> 0.50 (14 -> 10 of 20), dynamic 0.65 -> 0.55 (13 -> 11);
+  replication seeds 20-39 static 0.55 -> 0.40 (11 -> 8), dynamic 0.55 -> 0.55 (11 -> 11).
+  Pooled 49/80 -> 40/80 (0.61 -> 0.50). Caught/hiders barely moved: seeds 0-19 static
+  0.783 -> 0.733, dynamic 0.817 -> 0.800; seeds 20-39 static 0.567 -> 0.567, dynamic
+  0.800 -> 0.817. Verdict per the ruling (accept if the 0-or-all fraction falls): accepted.
+  The effect is modest (falls in 3 of 4 cells, equal in 1) and half the rounds are still
+  0-or-all, so per-hider catch rates remain clustered by round; analyze.py now reports
+  hiders caught per round with a CI over rounds for that reason.
