@@ -1,6 +1,11 @@
-## Headless experiment driver. Usage (from project root):
-##   ./Godot_v4.7.2-stable_linux.x86_64 --headless --path . res://scenes/batch.tscn -- \
+## Headless experiment driver. Usage (from project root; or use run_experiment.sh):
+##   ./Godot_v4.7.2-stable_linux.x86_64 --headless --path . --fixed-fps 60 res://scenes/batch.tscn -- \
 ##       --config res://experiments/ablation.tres --rounds 50 --out experiments/ablation.csv
+## --time-scale S runs S simulated seconds per 1/60 s of engine frame time while keeping the
+## physics step at 1/60 s: Engine.time_scale scales every physics delta, so the tick rate is
+## raised to 60*S to compensate. --fixed-fps 60 (an engine flag, before `--`) drops real-time
+## sync so the run is CPU-bound; without it the run is real-time at S x speed. Either way the
+## recorded rows are the same (the step is checked on the first tick).
 class_name BatchRunner
 extends Node
 
@@ -20,6 +25,7 @@ var _tcsv: FileAccess
 var _summary: Dictionary = {}  # variant -> {rounds, caught, total, duration_sum}
 var _pending: bool = false  # a round was started and has neither finished nor been skipped
 var _warming_up: bool = true  # the first round of a process is played and discarded
+var _first_tick: bool = true  # the physics step is checked once, on the first tick
 
 
 func _parse_args() -> bool:
@@ -48,10 +54,16 @@ func _parse_args() -> bool:
 			"--time-scale":
 				if not has_val:
 					return false
+				if not args[i + 1].is_valid_float() or float(args[i + 1]) <= 0.0:
+					push_error("--time-scale must be a number > 0 (got %s)" % args[i + 1])
+					return false
 				_time_scale = float(args[i + 1])
 				i += 1
 			"--seed-offset":
 				if not has_val:
+					return false
+				if not args[i + 1].is_valid_int():
+					push_error("--seed-offset must be an integer (got %s)" % args[i + 1])
 					return false
 				_seed_offset = int(args[i + 1])
 				i += 1
@@ -74,15 +86,20 @@ func _parse_args() -> bool:
 	if _rounds < 1:
 		push_error("--rounds must be at least 1 (got %d)" % _rounds)
 		return false
-	return not _variants.is_empty()
+	if _variants.is_empty():
+		push_error("%s has no variants" % config_path)
+		return false
+	return true
 
 
 func _ready() -> void:
 	if not _parse_args():
 		get_tree().quit(2)
 		return
+	# Engine.time_scale multiplies every physics delta; raising the tick rate by the same factor
+	# keeps the step at 1/60 s, so batch rows match the game and the tests (see NOTES).
+	Engine.physics_ticks_per_second = roundi(60.0 * _time_scale)
 	Engine.time_scale = _time_scale
-	Engine.max_physics_steps_per_frame = maxi(8, int(ceil(_time_scale)) * 2)
 	var abs_out: String = _out_path
 	if _out_path.begins_with("res://") or _out_path.begins_with("user://"):
 		abs_out = ProjectSettings.globalize_path(_out_path)
@@ -122,7 +139,16 @@ func _start_next() -> void:
 
 ## GameManager drops back to "idle" without emitting round_finished when its setup
 ## times out (navmesh never ready within 600 ticks). Skip that round instead of waiting forever.
-func _physics_process(_dt: float) -> void:
+## Also refuses to run (quit 2) if the physics step is not 1/60 s, so a misconfigured run
+## can never silently write coarse-step rows.
+func _physics_process(dt: float) -> void:
+	if _first_tick:
+		_first_tick = false
+		if absf(dt - 1.0 / 60.0) > 1e-4:
+			push_error("physics step is %f, expected 1/60" % dt)
+			_pending = false
+			get_tree().quit(2)
+			return
 	if _pending and gm.phase == "idle":
 		_on_round_finished({})
 

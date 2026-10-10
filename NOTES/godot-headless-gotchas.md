@@ -43,10 +43,20 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    Workaround in use: the determinism tests and `BatchRunner` play one
    discarded warm-up round first.
 7. **`Engine.time_scale` scales the physics step, it does not add ticks.**
-   With `time_scale = 8` headless still runs 60 physics ticks per real second,
-   each with `delta = 0.1333` (verified 3 times; engine `main.cpp` passes
-   `physics_step * time_scale` to physics, navigation and `_physics_process`).
-   So a time-scaled run simulates with a coarser step than the game and tests
-   (different results, still deterministic). For faster-than-real-time with an
-   unchanged 1/60 step use the CLI flag `--fixed-fps 60`, which drops real-time
-   sync (empty scene: ~400k ticks per real second, delta stays 0.01667).
+   With `time_scale = 8` alone, headless still runs 60 physics ticks per real
+   second, each with `delta = 0.13333` (4 probe runs, all 120 ticks in 2 s;
+   engine `main.cpp` passes `physics_step * time_scale` to physics, navigation
+   and `_physics_process`). A run scaled that way simulates with a coarser step
+   than the game and the tests, so it gives different (still deterministic)
+   results.
+   Fix used by `BatchRunner`: set `Engine.physics_ticks_per_second =
+   roundi(60 * scale)` together with `Engine.time_scale = scale`. The step is
+   then 1/60 s at any scale (at 8: 480 ticks/s, delta 0.01667). BatchRunner
+   checks the step on its first tick and quits with code 2 if it is not 1/60.
+   The engine CLI flag `--fixed-fps 60` (before `--`) drops real-time sync, so
+   the loop is CPU-bound with a fixed 1/60 s frame (empty scene, 4 probe runs:
+   801k-848k ticks in 2 s, delta 0.01667). `run_experiment.sh` passes it.
+   Verified: ablation config, 1 round per variant, gives byte-identical CSVs
+   for `--fixed-fps 60` at scale 8 (49.5 s and, in a fresh process, 48.5 s),
+   `--fixed-fps 60` at scale 1 (49.5 s), and real-time at scale 8 without
+   `--fixed-fps` (101.6 s).
