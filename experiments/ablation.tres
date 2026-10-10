@@ -47,3 +47,4 @@ seeker_sensors = PackedStringArray("vision")
 script = ExtResource("exp")
 variants = Array[ExtResource("cfg")]([SubResource("all"), SubResource("no_vision"), SubResource("no_lidar"), SubResource("no_ultrasonic_bumper"), SubResource("vision_only")])
 rounds_per_variant = 30
+seed_base = 1000

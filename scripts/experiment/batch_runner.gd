@@ -6,6 +6,9 @@
 ## raised to 60*S to compensate. --fixed-fps 60 (an engine flag, before `--`) drops real-time
 ## sync so the run is CPU-bound; without it the run is real-time at S x speed. Either way the
 ## recorded rows are the same (the step is checked on the first tick).
+## Seeds: ExperimentConfig.seed_base + --seed-offset + round index (0-based, per variant).
+## Exit codes: 0 all rounds recorded; 2 bad arguments/config, unwritable output or wrong
+## physics step; 3 finished but at least one round was skipped (setup timed out).
 class_name BatchRunner
 extends Node
 
@@ -17,6 +20,7 @@ var _out_path: String = "experiments/results.csv"
 var _abs_out: String = ""  # _out_path resolved to an absolute file path
 var _log_transitions: bool = false
 var _seed_offset: int = 0
+var _seed_base: int = 1000  # from the ExperimentConfig; first seed = _seed_base + _seed_offset
 var _time_scale: float = 8.0
 
 var _vi: int = 0
@@ -25,6 +29,7 @@ var _csv: FileAccess
 var _tcsv: FileAccess
 var _summary: Dictionary = {}  # variant -> {rounds, caught, total, duration_sum}
 var _pending: bool = false  # a round was started and has neither finished nor been skipped
+var _skipped: Array[String] = []  # "variant seed" of every round that produced no results
 var _first_tick: bool = true  # the physics step is checked once, on the first tick
 
 
@@ -81,6 +86,7 @@ func _parse_args() -> bool:
 		push_error("cannot load %s as ExperimentConfig" % config_path)
 		return false
 	_variants = cfg.variants
+	_seed_base = cfg.seed_base
 	if not args.has("--rounds"):
 		_rounds = cfg.rounds_per_variant
 	if _rounds < 1:
@@ -130,10 +136,14 @@ func _start_next() -> void:
 		_finish()
 		return
 	var cfg: RoundConfig = _variants[_vi].duplicate()
-	cfg.seed = _seed_offset + _si
+	cfg.seed = _seed()
 	print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
 	_pending = true
 	gm.start_round(cfg)
+
+
+func _seed() -> int:
+	return _seed_base + _seed_offset + _si
 
 
 ## GameManager drops back to "idle" without emitting round_finished when its setup
@@ -156,7 +166,8 @@ func _physics_process(dt: float) -> void:
 func _on_round_finished(res: Dictionary) -> void:
 	_pending = false
 	if res.is_empty():
-		push_error("[batch] variant=%s seed=%d produced no results; round skipped" % [_variants[_vi].variant_name, _seed_offset + _si])
+		push_error("[batch] variant=%s seed=%d produced no results; round skipped" % [_variants[_vi].variant_name, _seed()])
+		_skipped.append("%s %d" % [_variants[_vi].variant_name, _seed()])
 	else:
 		_record(res)
 	_si += 1
@@ -191,4 +202,10 @@ func _finish() -> void:
 		var s: Dictionary = _summary[v]
 		print("%-24s %6d %10.3f %10.1f" % [v, s["rounds"], float(s["caught"]) / maxi(1, s["total"]), s["duration_sum"] / maxi(1, s["rounds"])])
 	print("[batch] wrote %s" % _abs_out)
+	if not _skipped.is_empty():
+		# Rows already written stay; the exit code flags the shrunken seed sets.
+		print("[batch] %d round(s) skipped (no results): %s" % [_skipped.size(), ", ".join(_skipped)])
+		get_tree().quit(3)
+		return
+	print("[batch] 0 rounds skipped")
 	get_tree().quit(0)

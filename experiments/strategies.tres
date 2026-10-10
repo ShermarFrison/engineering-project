@@ -27,3 +27,4 @@ hider_strategy = "dynamic"
 script = ExtResource("exp")
 variants = Array[ExtResource("cfg")]([SubResource("static_hiders"), SubResource("dynamic_hiders")])
 rounds_per_variant = 30
+seed_base = 1000
