@@ -17,7 +17,11 @@ class Context extends RefCounted:
 	var local_mark_radius: float = 2.5
 	## Recently investigated spots, each {"pos": Vector3, "time": float}; ignored for investigate_cooldown.
 	var investigated: Array[Dictionary] = []
-	var investigate_cooldown: float = 10.0
+	var investigate_cooldown: float = 60.0
+	## Radius around a remembered investigate target inside which blobs are ignored (tuned
+	## 2.0 -> 3.0 with the cooldown 10 -> 60 s in Task 19: crates are static, so re-checking
+	## the same crate every 10 s was most of the seeker's round; see NOTES/tuning-log.md).
+	var investigated_radius: float = 3.0
 	## Without vision, a blob this close counts as a detection: Patrol/Investigate -> Chase.
 	var chase_blob_dist: float = 3.0
 	# chase memory
@@ -65,7 +69,7 @@ static func interesting_blob(bb: Blackboard, ctx: Context, respect_cooldown: boo
 			continue
 		if SeekerStates._near_any(ctx.duds, p, 1.0, bb.time, ctx.investigate_cooldown):
 			continue
-		if respect_cooldown and SeekerStates._near_any(ctx.investigated, p, 2.0, bb.time, ctx.investigate_cooldown):
+		if respect_cooldown and SeekerStates._near_any(ctx.investigated, p, ctx.investigated_radius, bb.time, ctx.investigate_cooldown):
 			continue
 		if blob["distance"] < best_d:
 			best_d = blob["distance"]
