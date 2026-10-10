@@ -39,14 +39,19 @@ func _enable_sensors(role: String, config: RoundConfig) -> void:
 	_ultrasonic.enabled = config.has_sensor(role, "ultrasonic")
 	_bumper.enabled = config.has_sensor(role, "bumper")
 	for s: SensorBase in _sensors:
-		s.noise_std = config.noise_std
+		s.noise_std = config.noise_std  # metres
+	_vision.bearing_noise_std = deg_to_rad(config.bearing_noise_deg)
 
 
 func setup(role: String, rng: RandomNumberGenerator, nav: NavService, grid: VisibilityGrid,
 		los: Callable, config: RoundConfig, seeker_spawn: Vector3) -> void:
 	body.role = role
 	bb.role = role
-	bb.rng = rng
+	# Own stream, seeded from the round RNG: one robot's draws (sensor noise, spot choice)
+	# never shift another robot's, whatever sensors each has enabled.
+	var own := RandomNumberGenerator.new()
+	own.seed = rng.randi()
+	bb.rng = own
 	_walls = grid.wall_rects
 	_enable_sensors(role, config)
 	motion.path_provider = nav.find_path

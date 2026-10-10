@@ -43,3 +43,22 @@ func test_disabled_lidar_leaves_blackboard_empty() -> void:
 	lidar.sense(bb)
 	assert_bool(bb.lidar_enabled).is_false()
 	assert_int(bb.lidar_ranges.size()).is_equal(0)
+
+
+func test_noisy_ranges_stay_within_zero_and_max_range() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var robot: DriveBody = ROBOT.instantiate()
+	robot.position = Vector3(4.6, 0.3, 0)  # 0.3 m from the wall at x = 4.9
+	runner.scene().add_child(robot)
+	await ticks(30)
+	var lidar: Lidar = robot.get_node("Sensors/Lidar")
+	lidar.body = robot
+	lidar.noise_std = 3.0
+	var bb := Blackboard.new()
+	bb.rng.seed = 11
+	bb.position = robot.global_position
+	bb.yaw = robot.yaw()
+	for k: int in 20:
+		lidar.sense(bb)
+		for r: float in bb.lidar_ranges:
+			assert_float(r).is_between(0.0, lidar.max_range)

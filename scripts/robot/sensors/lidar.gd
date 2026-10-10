@@ -24,6 +24,6 @@ func sense(bb: Blackboard) -> void:
 		var hit: Dictionary = space.intersect_ray(q)
 		var r: float = max_range
 		if not hit.is_empty():
-			r = minf(max_range, origin.distance_to(hit["position"]) + _noise(bb))
+			r = clampf(origin.distance_to(hit["position"]) + _noise(bb), 0.0, max_range)
 		bb.lidar_ranges.append(r)
 		bb.lidar_angles.append(angle)

@@ -13,7 +13,8 @@ extends Resource
 @export var seeker_sensors: PackedStringArray = PackedStringArray(["lidar", "vision", "ultrasonic", "bumper"])
 @export var hider_sensors: PackedStringArray = PackedStringArray(["lidar", "vision", "ultrasonic", "bumper"])
 @export var hider_strategy: String = "static"  # "static" | "dynamic"
-@export var noise_std: float = 0.0
+@export var noise_std: float = 0.0  # metres: lidar, ultrasonic and vision distance
+@export var bearing_noise_deg: float = 0.0  # degrees: vision bearing
 
 
 func has_sensor(role: String, sensor: String) -> bool:

@@ -32,9 +32,15 @@ func due(dt: float) -> bool:
 
 
 func _noise(bb: Blackboard) -> float:
-	if noise_std <= 0.0:
+	return _gauss(bb, noise_std)
+
+
+## Zero-mean Gaussian sample with the given std from the robot's own stream (bb.rng).
+## Draws nothing when std <= 0, so a noise-free sensor never shifts the stream.
+func _gauss(bb: Blackboard, std: float) -> float:
+	if std <= 0.0:
 		return 0.0
-	return bb.rng.randfn(0.0, noise_std)
+	return bb.rng.randfn(0.0, std)
 
 
 func _space() -> PhysicsDirectSpaceState3D:

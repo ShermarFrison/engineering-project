@@ -1,4 +1,6 @@
 ## Camera-like detector: limited FOV and range, confirmed by a line-of-sight ray.
+## noise_std (metres) perturbs the measured distance, bearing_noise_std (radians) the
+## bearing; the reported position is rebuilt from the noisy pair, so consumers see the noise.
 class_name VisionCone
 extends SensorBase
 
@@ -6,6 +8,7 @@ extends SensorBase
 @export var max_range: float = 10.0
 @export var los_mask: int = 7
 @export var los_target_height: float = 0.25  # centre of the target's mast above its body origin
+@export var bearing_noise_std: float = 0.0  # radians
 
 
 func sense(bb: Blackboard) -> void:
@@ -35,16 +38,22 @@ func sense(bb: Blackboard) -> void:
 		if hit.is_empty() or hit["collider_id"] != other.get_instance_id():
 			continue
 		var id: int = other.get_instance_id()
+		var seen_bearing: float = bearing + _gauss(bb, bearing_noise_std)
+		var seen_dist: float = clampf(dist + _noise(bb), 0.0, max_range)
+		var seen_pos: Vector3 = other.global_position
+		if noise_std > 0.0 or bearing_noise_std > 0.0:
+			seen_pos = bb.position + bb.local_to_world_dir(seen_bearing) * seen_dist
+			seen_pos.y = other.global_position.y  # noise is planar; keep the target's height
 		var rec := {
 			"id": id,
 			"role": other.role,
-			"position": other.global_position,
-			"bearing": bearing + _noise(bb),
-			"distance": dist + _noise(bb),
+			"position": seen_pos,
+			"bearing": seen_bearing,
+			"distance": seen_dist,
 			"time": bb.time,
 		}
 		bb.seen_robots.append(rec)
-		bb.last_known[id] = {"position": other.global_position, "time": bb.time, "role": other.role}
+		bb.last_known[id] = {"position": seen_pos, "time": bb.time, "role": other.role}
 		if other.role == "seeker":
-			bb.seeker_last_seen_pos = other.global_position
+			bb.seeker_last_seen_pos = seen_pos
 			bb.seeker_last_seen_time = bb.time

@@ -90,6 +90,36 @@ func test_sensor_ablation_flags_reach_blackboard() -> void:
 	assert_bool(brain.bb.bumper_enabled).is_true()
 
 
+func test_setup_gives_each_robot_its_own_seeded_rng_and_vision_noise() -> void:
+	var r: Array = await NavArenaHelper.ready_arena(self)
+	var arena: Arena = r[1]
+	var cfg := RoundConfig.new()
+	cfg.noise_std = 0.2
+	cfg.bearing_noise_deg = 4.0
+	var a := NavArenaHelper.spawn_robot(arena, arena.seeker_spawn_point(), "seeker")
+	var b := NavArenaHelper.spawn_robot(arena, arena.hider_spawn_points()[0], "hider")
+	await ticks(2)
+	var round_rng := RandomNumberGenerator.new()
+	round_rng.seed = 9
+	var brain_a: RobotBrain = a.get_node("Brain")
+	var brain_b: RobotBrain = b.get_node("Brain")
+	var grid := VisibilityGrid.new()
+	var los := NavArenaHelper.los_walls(arena)
+	grid.build(arena.bounds(), arena.wall_rects(), arena.seeker_spawn_point(), los)
+	brain_a.setup("seeker", round_rng, arena.nav, grid, los, cfg, arena.seeker_spawn_point())
+	brain_b.setup("hider", round_rng, arena.nav, grid, los, cfg, arena.seeker_spawn_point())
+	assert_object(brain_a.bb.rng).is_not_same(round_rng)
+	assert_object(brain_a.bb.rng).is_not_same(brain_b.bb.rng)
+	# Seeded from the round RNG in setup order.
+	var expect := RandomNumberGenerator.new()
+	expect.seed = 9
+	assert_int(brain_a.bb.rng.seed).is_equal(expect.randi())
+	assert_int(brain_b.bb.rng.seed).is_equal(expect.randi())
+	var vision: VisionCone = a.get_node("Sensors/Vision")
+	assert_float(vision.noise_std).is_equal(0.2)
+	assert_float(vision.bearing_noise_std).is_equal_approx(deg_to_rad(4.0), 1e-6)
+
+
 func test_set_caught_stops_robot() -> void:
 	var r: Array = await NavArenaHelper.ready_arena(self)
 	var arena: Arena = r[1]

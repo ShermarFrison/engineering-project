@@ -84,3 +84,59 @@ func test_disabled_vision_sees_nothing() -> void:
 	var bb := _sense(seeker)
 	assert_bool(bb.vision_enabled).is_false()
 	assert_array(bb.seen_robots).is_empty()
+
+
+func _sense_noisy(seeker: DriveBody, dist_std: float, bearing_std: float) -> Blackboard:
+	var vision: VisionCone = seeker.get_node("Sensors/Vision")
+	vision.body = seeker
+	vision.noise_std = dist_std
+	vision.bearing_noise_std = bearing_std
+	var bb := Blackboard.new()
+	bb.rng.seed = 5
+	bb.position = seeker.global_position
+	bb.yaw = seeker.yaw()
+	vision.sense(bb)
+	return bb
+
+
+func _xz_gap(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
+func test_zero_noise_reports_exact_position() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
+	var hider := _spawn(runner, Vector3(0.5, 0.3, -6), "hider")
+	await ticks(30)
+	var bb := _sense_noisy(seeker, 0.0, 0.0)
+	assert_int(bb.seen_robots.size()).is_equal(1)
+	assert_float(_xz_gap(bb.seen_robots[0]["position"], hider.global_position)).is_less(1e-4)
+	assert_float(_xz_gap(bb.last_known[hider.get_instance_id()]["position"], hider.global_position)).is_less(1e-4)
+
+
+func test_distance_noise_moves_the_reported_position() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
+	var hider := _spawn(runner, Vector3(0.5, 0.3, -6), "hider")
+	await ticks(30)
+	var bb := _sense_noisy(seeker, 0.5, 0.0)
+	assert_int(bb.seen_robots.size()).is_equal(1)
+	var s: Dictionary = bb.seen_robots[0]
+	assert_float(_xz_gap(s["position"], hider.global_position)).is_greater(1e-3)
+	assert_float((s["position"] as Vector3).y).is_equal_approx(hider.global_position.y, 1e-4)
+	# Consistent with the reported (noisy) distance and bearing.
+	var rebuilt: Vector3 = bb.position + bb.local_to_world_dir(s["bearing"]) * float(s["distance"])
+	assert_float(_xz_gap(s["position"], rebuilt)).is_less(1e-4)
+	assert_float(_xz_gap(bb.last_known[hider.get_instance_id()]["position"], s["position"])).is_less(1e-6)
+
+
+func test_bearing_noise_moves_the_reported_position() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var seeker := _spawn(runner, Vector3(0, 0.3, 0), "seeker")
+	var hider := _spawn(runner, Vector3(0.5, 0.3, -6), "hider")
+	await ticks(30)
+	var bb := _sense_noisy(seeker, 0.0, deg_to_rad(10.0))
+	var s: Dictionary = bb.seen_robots[0]
+	assert_float(_xz_gap(s["position"], hider.global_position)).is_greater(1e-3)
+	# Distance unchanged: the point moved along the circle around the seeker.
+	assert_float(_xz_gap(s["position"], bb.position)).is_equal_approx(_xz_gap(hider.global_position, bb.position), 1e-3)
