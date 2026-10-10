@@ -1,0 +1,49 @@
+[gd_resource type="Resource" script_class="ExperimentConfig" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/experiment/experiment_config.gd" id="exp"]
+[ext_resource type="Script" path="res://scripts/game/round_config.gd" id="cfg"]
+
+[sub_resource type="Resource" id="all"]
+script = ExtResource("cfg")
+variant_name = "all_sensors"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+
+[sub_resource type="Resource" id="no_vision"]
+script = ExtResource("cfg")
+variant_name = "no_vision"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("lidar", "ultrasonic", "bumper")
+
+[sub_resource type="Resource" id="no_lidar"]
+script = ExtResource("cfg")
+variant_name = "no_lidar"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("vision", "ultrasonic", "bumper")
+
+[sub_resource type="Resource" id="no_ultrasonic_bumper"]
+script = ExtResource("cfg")
+variant_name = "no_ultrasonic_bumper"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("lidar", "vision")
+
+[sub_resource type="Resource" id="vision_only"]
+script = ExtResource("cfg")
+variant_name = "vision_only"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("vision")
+
+[resource]
+script = ExtResource("exp")
+variants = Array[ExtResource("cfg")]([SubResource("all"), SubResource("no_vision"), SubResource("no_lidar"), SubResource("no_ultrasonic_bumper"), SubResource("vision_only")])
+rounds_per_variant = 30

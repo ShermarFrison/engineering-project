@@ -1,0 +1,14 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/experiment/batch_runner.gd" id="runner"]
+[ext_resource type="PackedScene" path="res://scenes/arena/arena.tscn" id="arena"]
+[ext_resource type="Script" path="res://scripts/game/game_manager.gd" id="gm"]
+
+[node name="Batch" type="Node" ]
+script = ExtResource("runner")
+
+[node name="Arena" parent="." instance=ExtResource("arena")]
+
+[node name="GameManager" type="Node" parent="."]
+script = ExtResource("gm")
+arena_path = NodePath("../Arena")
