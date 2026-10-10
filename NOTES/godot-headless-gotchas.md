@@ -27,27 +27,21 @@ All verified with the bundled binary in `--headless` mode, Jolt physics.
    `assert_bool`, `assert_int`, `assert_dict`. Scene tests: `scene_runner(scene)`,
    `await runner.simulate_frames(n)`, `runner.scene()`.
 5. `OS.get_cmdline_user_args()` returns everything after `--` as expected.
-6. **Open question: the first round played in a process differs from later
-   same-seed rounds.** `GameManager.start_round` with the same seed three times
-   back to back in one scene (head_start 2, round_time 5, 2 hiders, 6 props,
-   seed 7): round 1 gives seeker/hider distances 7.399 / 11.849 / 12.644,
-   rounds 2 and 3 both give 6.940 / 11.960 / 12.108 (all other columns equal).
-   Reproduced in 3 separate processes (and in 4 more by an earlier probe with
-   seed 21); round 1 is itself identical across processes. One A/B hypothesis
-   test (3 processes each arm): calling `arena.nav.bake(arena.static_root)` once
-   and waiting for `nav.is_ready()` before round 1 makes round 1 equal to rounds
-   2 and 3; the same idle wait without that pre-bake does not. So the first
-   `NavService.bake` into a fresh navigation map is involved (possibly
-   `map_set_use_async_iterations(map, false)` only taking effect after the
-   first region was added); the exact mechanism is not confirmed.
-   Workaround in use: the determinism tests and `BatchRunner` play one
-   discarded warm-up round first.
-   Related observation (Task 19, editor F5 run, not headless, not yet replicated):
-   the editor's first round (seed 1) matched the batch row for seed 1 exactly
-   (duration 84.833, seeker distance 78.473, 27 transitions), while the four
-   rounds started afterwards with R (seeds 2-5, `GameManager.start_round` again in
-   the same process) all differed from their batch rows (e.g. seed 2: 44.050 s vs
-   45.383 s; seed 5: 2 caught vs 3). Cause not investigated.
+6. **A round's outcome depended on where `GameManager.start_round` was called.**
+   Before the fix, `start_round` cleared the old round, spawned props and baked the
+   navmesh synchronously, so the tick on which the robots spawned (and the physics state
+   they spawned into) depended on the caller's frame phase: `call_deferred` from a physics
+   tick (BatchRunner), a `_process`/input callback (main.gd, key R), or a direct call from a
+   test coroutine. Same seed 7, short round: `call_deferred` then `_process` start gave
+   hider distances 11.702 / 12.753 vs 10.955 / 12.366 (3 of 3 processes). This was first
+   misread as a "first round of a process differs" effect and worked around with a
+   discarded warm-up round.
+   Fix: `start_round` only latches the config (phase becomes "setup" at once); the setup
+   runs on GameManager's next `_physics_process`, and the first `nav.is_ready()` check
+   waits a fixed `SETUP_MIN_TICKS = 10` ticks. Verified: the call-site scene test and
+   back-to-back same-seed rounds without warm-up pass in 3 of 3 processes, also with the
+   call-site order swapped; the ablation config, 1 round per variant, gives byte-identical
+   CSVs in 3 fresh processes, identical to the pre-fix build with its warm-up round.
 7. **`Engine.time_scale` scales the physics step, it does not add ticks.**
    With `time_scale = 8` alone, headless still runs 60 physics ticks per real
    second, each with `delta = 0.13333` (4 probe runs, all 120 ticks in 2 s;

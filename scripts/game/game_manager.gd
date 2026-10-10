@@ -7,6 +7,9 @@ signal round_finished(results: Dictionary)
 
 const ROBOT := preload("res://scenes/robots/robot.tscn")
 const SETUP_MAX_TICKS: int = 600  # 10 s at 60 Hz; the navmesh is normally ready in ~3 ticks
+## Setup ticks before the first navmesh readiness check. A fixed count, so the tick on which
+## the robots spawn never depends on when the navigation map happens to sync.
+const SETUP_MIN_TICKS: int = 10
 
 @export var arena_path: NodePath
 
@@ -23,6 +26,7 @@ var _spawner: PropSpawner = PropSpawner.new()
 var _catch_times: Array[float] = []
 var _results: Dictionary = {}
 var _setup_ticks: int = 0
+var _setup_pending: bool = false  # start_round latched a config; setup runs on the next physics tick
 
 
 func _ready() -> void:
@@ -43,13 +47,23 @@ func _los_walls(a: Vector3, b: Vector3) -> bool:
 	return los_clear(a, b, 1)
 
 
+## Latches the config only. The setup (clear, props, navmesh bake) runs on this node's next
+## physics tick, so a round is the same whether it was started from a physics callback,
+## call_deferred or a _process/input callback (see NOTES/godot-headless-gotchas.md).
+## phase is "setup" at once, so watchdogs polling for "idle" see the round as pending.
 func start_round(cfg: RoundConfig) -> void:
 	config = cfg
+	_results = {}
+	_setup_pending = true
+	_setup_ticks = 0
+	phase = "setup"
+
+
+func _begin_setup() -> void:
 	rng = RandomNumberGenerator.new()
-	rng.seed = cfg.seed
+	rng.seed = config.seed
 	time = 0.0
 	_catch_times.clear()
-	_results = {}
 	# Clear previous round.
 	for r: RobotBrain in hiders:
 		r.body.queue_free()
@@ -62,11 +76,10 @@ func start_round(cfg: RoundConfig) -> void:
 	# is an untyped Array and fails at runtime when assigned to Array[Vector3].
 	var keep: Array[Vector3] = [arena.seeker_spawn_point()]
 	keep.append_array(arena.hider_spawn_points())
-	var layout := PropLayout.generate(rng, cfg.prop_count, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
+	var layout := PropLayout.generate(rng, config.prop_count, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
 	_spawner.spawn(layout, arena.props_root)
 	arena.nav.bake(arena.static_root)
 	_setup_ticks = 0
-	phase = "setup"
 
 
 ## Instantiates one robot under arena.robots_root and wires its brain (both roles).
@@ -100,7 +113,13 @@ func _spawn_robots() -> void:
 func _physics_process(dt: float) -> void:
 	match phase:
 		"setup":
+			if _setup_pending:
+				_setup_pending = false
+				_begin_setup()
+				return
 			_setup_ticks += 1
+			if _setup_ticks < SETUP_MIN_TICKS:
+				return
 			if not arena.nav.is_ready():
 				if _setup_ticks >= SETUP_MAX_TICKS:
 					push_error("nav not ready")

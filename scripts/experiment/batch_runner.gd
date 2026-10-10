@@ -24,7 +24,6 @@ var _csv: FileAccess
 var _tcsv: FileAccess
 var _summary: Dictionary = {}  # variant -> {rounds, caught, total, duration_sum}
 var _pending: bool = false  # a round was started and has neither finished nor been skipped
-var _warming_up: bool = true  # the first round of a process is played and discarded
 var _first_tick: bool = true  # the physics step is checked once, on the first tick
 
 
@@ -129,10 +128,7 @@ func _start_next() -> void:
 		return
 	var cfg: RoundConfig = _variants[_vi].duplicate()
 	cfg.seed = _seed_offset + _si
-	if _warming_up:
-		print("[batch] warm-up round (discarded): variant=%s seed=%d" % [cfg.variant_name, cfg.seed])
-	else:
-		print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
+	print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
 	_pending = true
 	gm.start_round(cfg)
 
@@ -156,11 +152,6 @@ func _physics_process(dt: float) -> void:
 ## Advances the batch; driven by GameManager.round_finished (or the idle watchdog above).
 func _on_round_finished(res: Dictionary) -> void:
 	_pending = false
-	if _warming_up:
-		# The first round of a process is not reproducible by later same-seed rounds; drop it.
-		_warming_up = false
-		call_deferred("_start_next")
-		return
 	if res.is_empty():
 		push_error("[batch] variant=%s seed=%d produced no results; round skipped" % [_variants[_vi].variant_name, _seed_offset + _si])
 	else:
