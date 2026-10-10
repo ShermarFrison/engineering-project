@@ -1,10 +1,17 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="main"]
 [ext_resource type="PackedScene" path="res://scenes/arena/arena.tscn" id="arena"]
 [ext_resource type="Script" path="res://scripts/game/game_manager.gd" id="gm"]
 [ext_resource type="Script" path="res://scripts/ui/camera_rig.gd" id="cam"]
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="hud"]
+
+[sub_resource type="StyleBoxFlat" id="hud_bg"]
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 6.0
+bg_color = Color(0, 0, 0, 0.6)
 
 [node name="Main" type="Node3D"]
 script = ExtResource("main")
@@ -30,4 +37,7 @@ offset_left = 12.0
 offset_top = 12.0
 offset_right = 700.0
 offset_bottom = 200.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("hud_bg")

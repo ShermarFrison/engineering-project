@@ -82,4 +82,36 @@ func test_wheel_meshes_spin_when_driving() -> void:
 	robot.set_command(1.0, 0.0)
 	await ticks(10)
 	assert_bool(wheel.transform.basis.is_equal_approx(before)).is_false()
-	assert_vector(wheel.position).is_equal_approx(Vector3(-0.2, -0.05, 0.0), Vector3(1e-4, 1e-4, 1e-4))  # spins in place
+	assert_vector(wheel.position).is_equal_approx(Vector3(-0.2, 0.011, 0.0), Vector3(1e-4, 1e-4, 1e-4))  # spins in place
+
+
+## Robot-frame direction of the rim point that was at the bottom of the wheel at rest.
+func _rest_bottom_dir(wheel: Node3D, rest: Basis) -> Vector3:
+	var p_local: Vector3 = rest.inverse() * Vector3.DOWN
+	return wheel.transform.basis * p_local
+
+
+func test_wheels_roll_forward_when_driving_forward() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var robot := _spawn(runner, Vector3(0, 0.3, 0))
+	await ticks(60)
+	var wl: Node3D = robot.get_node("WheelL")
+	var wr: Node3D = robot.get_node("WheelR")
+	var rest_l: Basis = wl.transform.basis
+	var rest_r: Basis = wr.transform.basis
+	robot.set_command(1.0, 0.0)
+	await ticks(6)  # small spin (< 1 rad) so the direction is unambiguous
+	# Rolling toward -Z without slip: the bottom of each wheel moves backward (+Z) and up.
+	assert_float(_rest_bottom_dir(wl, rest_l).z).is_greater(0.05)
+	assert_float(_rest_bottom_dir(wr, rest_r).z).is_greater(0.05)
+
+
+func test_wheel_meshes_touch_the_floor_at_rest() -> void:
+	var runner := scene_runner(auto_free(FLOOR.instantiate()))
+	var robot := _spawn(runner, Vector3(0, 0.3, 0))
+	await ticks(60)
+	for n: String in ["WheelL", "WheelR"]:
+		var wheel: MeshInstance3D = robot.get_node(n)
+		var radius: float = (wheel.mesh as CylinderMesh).top_radius
+		var bottom: float = wheel.global_position.y - radius  # axle is horizontal
+		assert_float(bottom).append_failure_message("%s bottom at %.3f" % [n, bottom]).is_between(-0.01, 0.01)

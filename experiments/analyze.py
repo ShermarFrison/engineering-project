@@ -7,6 +7,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+MAX_HIDERS = 3  # hider columns per row; matches ResultsCsv.MAX_HIDERS
+
 
 def main(path: str) -> None:
     src = Path(path)
@@ -14,6 +16,8 @@ def main(path: str) -> None:
     with src.open(newline="") as f:
         for row in csv.DictReader(f):
             groups[row["variant"]].append(row)
+    if not groups:
+        sys.exit(f"{src}: no data rows (header only or empty); nothing to summarise")
 
     rows = []
     for variant, rs in groups.items():
@@ -21,7 +25,7 @@ def main(path: str) -> None:
         caught = sum(int(r["hiders_caught"]) for r in rs)
         catch_times = []
         for r in rs:
-            for i in range(3):
+            for i in range(MAX_HIDERS):
                 v = r.get(f"hider{i}_catch_time", "")
                 if v not in ("", "-1.000"):
                     catch_times.append(float(v))
@@ -29,7 +33,9 @@ def main(path: str) -> None:
             "variant": variant,
             "rounds": len(rs),
             "catch_rate": caught / total if total else 0.0,
+            "catches_timed": len(catch_times),
             "mean_catch_time": statistics.mean(catch_times) if catch_times else float("nan"),
+            "median_catch_time": statistics.median(catch_times) if catch_times else float("nan"),
             "mean_seeker_distance": statistics.mean(float(r["seeker_distance"]) for r in rs),
             "mean_seeker_collisions": statistics.mean(float(r["seeker_collisions"]) for r in rs),
             "mean_seeker_stuck": statistics.mean(float(r["seeker_stuck"]) for r in rs),
@@ -42,7 +48,8 @@ def main(path: str) -> None:
         w.writerows(rows)
     for r in rows:
         print(f"{r['variant']:<24} n={r['rounds']:<4} catch_rate={r['catch_rate']:.3f} "
-              f"mean_catch_time={r['mean_catch_time']:.1f} dist={r['mean_seeker_distance']:.1f}")
+              f"catch_time mean={r['mean_catch_time']:.1f} median={r['median_catch_time']:.1f} "
+              f"(n={r['catches_timed']}) dist={r['mean_seeker_distance']:.1f}")
 
     try:
         import matplotlib

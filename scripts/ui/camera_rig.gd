@@ -7,18 +7,25 @@ extends Node3D
 @export var yaw_deg: float = 0.0
 
 var _target: Node3D = null
+var _following: bool = false  # a freed target is neither valid nor reliably == null
 var _dragging: bool = false
 @onready var _cam: Camera3D = $Camera3D
 
 
 func follow(body: Node3D) -> void:
 	_target = body
+	_following = true
 	distance = minf(distance, 10.0)
 
 
 func free_camera() -> void:
 	_target = null
+	_following = false
 	distance = 25.0
+
+
+func is_following() -> bool:
+	return _following
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -37,9 +44,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(_dt: float) -> void:
-	if _target and is_instance_valid(_target):
+	if _following and not is_instance_valid(_target):
+		free_camera()  # the followed robot was freed (round restarted)
+	if _following:
 		global_position = global_position.lerp(_target.global_position, 0.15)
-	elif _target == null:
+	else:
 		global_position = global_position.lerp(Vector3.ZERO, 0.1)
 	rotation_degrees = Vector3(0.0, yaw_deg, 0.0)
 	# Place the camera `distance` away along a ray tilted by `pitch` below horizontal, looking at the rig origin.

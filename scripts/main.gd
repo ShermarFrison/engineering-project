@@ -13,7 +13,14 @@ var _follow_index: int = -1
 func _ready() -> void:
 	hud.bind(gm)
 	gm.round_finished.connect(func(res: Dictionary) -> void: print(JSON.stringify(res, "  ")))
+	gm.round_started.connect(_on_round_started)
 	gm.start_round(DEFAULT_CONFIG.duplicate())
+
+
+## The previous round's robots are freed on restart: drop any follow target.
+func _on_round_started(_config: RoundConfig) -> void:
+	_follow_index = -1
+	cam.free_camera()
 
 
 func _unhandled_input(event: InputEvent) -> void:

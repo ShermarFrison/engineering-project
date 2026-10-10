@@ -14,6 +14,7 @@ extends Node
 var _variants: Array[RoundConfig] = []
 var _rounds: int = 20
 var _out_path: String = "experiments/results.csv"
+var _abs_out: String = ""  # _out_path resolved to an absolute file path
 var _log_transitions: bool = false
 var _seed_offset: int = 0
 var _time_scale: float = 8.0
@@ -99,25 +100,27 @@ func _ready() -> void:
 	# keeps the step at 1/60 s, so batch rows match the game and the tests (see NOTES).
 	Engine.physics_ticks_per_second = roundi(60.0 * _time_scale)
 	Engine.time_scale = _time_scale
-	var abs_out: String = _out_path
+	_abs_out = _out_path
 	if _out_path.begins_with("res://") or _out_path.begins_with("user://"):
-		abs_out = ProjectSettings.globalize_path(_out_path)
+		_abs_out = ProjectSettings.globalize_path(_out_path)
 	elif not _out_path.is_absolute_path():
-		abs_out = ProjectSettings.globalize_path("res://").path_join(_out_path)
-	_csv = FileAccess.open(abs_out, FileAccess.WRITE)
+		_abs_out = ProjectSettings.globalize_path("res://").path_join(_out_path)
+	_csv = FileAccess.open(_abs_out, FileAccess.WRITE)
 	if _csv == null:
-		push_error("cannot open %s" % abs_out)
+		push_error("cannot open %s" % _abs_out)
 		get_tree().quit(2)
 		return
 	_csv.store_csv_line(ResultsCsv.header())
+	_csv.flush()
 	if _log_transitions:
-		var tpath: String = abs_out.get_basename() + "_transitions.csv"
+		var tpath: String = _abs_out.get_basename() + "_transitions.csv"
 		_tcsv = FileAccess.open(tpath, FileAccess.WRITE)
 		if _tcsv == null:
 			push_error("cannot open %s" % tpath)
 			get_tree().quit(2)
 			return
 		_tcsv.store_csv_line(ResultsCsv.transitions_header())
+		_tcsv.flush()
 	gm.round_finished.connect(_on_round_finished)
 	_start_next()
 
@@ -187,5 +190,5 @@ func _finish() -> void:
 	for v: String in _summary:
 		var s: Dictionary = _summary[v]
 		print("%-24s %6d %10.3f %10.1f" % [v, s["rounds"], float(s["caught"]) / maxi(1, s["total"]), s["duration_sum"] / maxi(1, s["rounds"])])
-	print("[batch] wrote %s" % _out_path)
+	print("[batch] wrote %s" % _abs_out)
 	get_tree().quit(0)

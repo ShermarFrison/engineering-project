@@ -63,12 +63,12 @@ mesh = SubResource("mast_mesh")
 surface_material_override/0 = SubResource("mast_mat")
 
 [node name="WheelL" type="MeshInstance3D" parent="."]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.2, -0.05, 0)
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.2, 0.011, 0)
 mesh = SubResource("wheel_mesh")
 surface_material_override/0 = SubResource("wheel_mat")
 
 [node name="WheelR" type="MeshInstance3D" parent="."]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.2, -0.05, 0)
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.2, 0.011, 0)
 mesh = SubResource("wheel_mesh")
 surface_material_override/0 = SubResource("wheel_mat")
 

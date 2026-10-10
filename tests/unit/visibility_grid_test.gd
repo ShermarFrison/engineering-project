@@ -22,14 +22,14 @@ func test_cells_avoid_walls_and_cover_bounds() -> void:
 	assert_bool(g.centers.has(Vector3(9, 0, 9))).is_true()  # far +X/+Z corner cell exists
 	assert_bool(g.centers.has(Vector3(-9, 0, -9))).is_true()
 	assert_int(g.wall_rects.size()).is_equal(1)
-	for c in g.centers:
+	for c: Vector3 in g.centers:
 		assert_bool(WALL.grow(0.5).has_point(Vector2(c.x, c.z))).is_false()
 		assert_bool(BOUNDS.has_point(Vector2(c.x, c.z))).is_true()
 
 
 func test_visible_from_spawn_respects_wall() -> void:
 	var g := _grid()
-	for i in g.centers.size():
+	for i: int in g.centers.size():
 		var c: Vector3 = g.centers[i]
 		assert_bool(g.visible_from_spawn[i]).is_equal(c.x < 0.0)
 
@@ -55,7 +55,7 @@ func test_mark_viewed_respects_fov() -> void:
 	# facing -Z (yaw 0) with 90 deg fov from the far east side: only cells with z < pos.z get marked
 	var pos := Vector3(7, 0, 8)
 	g.mark_viewed(pos, 0.0, deg_to_rad(90), 100.0, 5.0, _los)
-	for i in g.centers.size():
+	for i: int in g.centers.size():
 		if g.last_viewed[i] > 0.0:
 			assert_float(g.centers[i].z).is_less(pos.z + 0.01)
 

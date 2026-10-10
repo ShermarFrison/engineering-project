@@ -26,24 +26,24 @@ func test_generates_requested_count() -> void:
 
 func test_props_do_not_overlap_each_other_or_walls() -> void:
 	var layout := PropLayout.generate(_rng(2), 12, BOUNDS, _walls(), [], SIZES, 1.5)
-	for i in layout.size():
-		for j in range(i + 1, layout.size()):
+	for i: int in layout.size():
+		for j: int in range(i + 1, layout.size()):
 			assert_bool(PropLayout.overlaps(_rect(layout[i]), _rect(layout[j]), 1.5)).is_false()
-		for w in _walls():
+		for w: Rect2 in _walls():
 			assert_bool(PropLayout.overlaps(_rect(layout[i]), w, 1.5)).is_false()
 
 
 func test_props_stay_inside_bounds() -> void:
 	var layout := PropLayout.generate(_rng(3), 12, BOUNDS, _walls(), [], SIZES)
-	for p in layout:
+	for p: Dictionary in layout:
 		assert_bool(BOUNDS.grow(-1.0).encloses(_rect(p))).is_true()
 
 
 func test_keep_clear_points_respected() -> void:
 	var clear: Array[Vector3] = [Vector3(-7, 0, 0), Vector3(12, 0, 12)]
 	var layout := PropLayout.generate(_rng(4), 12, BOUNDS, _walls(), clear, SIZES)
-	for p in layout:
-		for c in clear:
+	for p: Dictionary in layout:
+		for c: Vector3 in clear:
 			var cr := Rect2(Vector2(c.x, c.z) - Vector2(1, 1), Vector2(2, 2))
 			assert_bool(PropLayout.overlaps(_rect(p), cr, 1.5)).is_false()
 

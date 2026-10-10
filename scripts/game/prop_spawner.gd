@@ -8,13 +8,13 @@ const HEIGHT: float = 1.0
 
 
 func clear(parent: Node3D) -> void:
-	for c in parent.get_children():
+	for c: Node in parent.get_children():
 		parent.remove_child(c)
 		c.queue_free()
 
 
 func spawn(layout: Array[Dictionary], parent: Node3D) -> void:
-	for i in layout.size():
+	for i: int in layout.size():
 		var p: Dictionary = layout[i]
 		var crate: StaticBody3D = CRATE.instantiate()
 		crate.name = "Crate%d" % i

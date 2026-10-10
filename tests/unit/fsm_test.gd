@@ -47,7 +47,7 @@ func test_transition_calls_exit_enter_and_logs() -> void:
 	fsm.add(b)
 	var bb := Blackboard.new()
 	fsm.start("A", bb)
-	for i in 3:
+	for i: int in 3:
 		bb.time = i * 0.1
 		fsm.update(bb, 0.1)
 	assert_str(fsm.current_name()).is_equal("B")

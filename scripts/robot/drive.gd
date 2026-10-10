@@ -49,11 +49,12 @@ func _ready() -> void:
 
 
 ## Visual only: spin the wheel meshes about their axle at the current wheel speeds.
-## The cylinder's local Y is the axle (robot X); positive wheel speed drives toward -Z,
-## which is a negative rotation about +X.
+## Positive wheel speed drives toward -Z, a negative rotation about robot +X. The rest
+## basis maps the cylinder's local Y (the axle) to robot -X, so that is a positive
+## rotation about local Y (checked by drive_body_test).
 func _physics_process(dt: float) -> void:
-	_spin_l = wrapf(_spin_l - model.wl * dt, -PI, PI)
-	_spin_r = wrapf(_spin_r - model.wr * dt, -PI, PI)
+	_spin_l = wrapf(_spin_l + model.wl * dt, -PI, PI)
+	_spin_r = wrapf(_spin_r + model.wr * dt, -PI, PI)
 	if _wheel_l:
 		_wheel_l.transform.basis = _wheel_l_rest * Basis(Vector3.UP, _spin_l)
 	if _wheel_r:

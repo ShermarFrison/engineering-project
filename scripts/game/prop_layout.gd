@@ -20,7 +20,7 @@ static func generate(rng: RandomNumberGenerator, count: int, bounds: Rect2,
 	var out: Array[Dictionary] = []
 	var placed: Array[Rect2] = []
 	var clear_rects: Array[Rect2] = []
-	for c in keep_clear:
+	for c: Vector3 in keep_clear:
 		clear_rects.append(Rect2(Vector2(c.x, c.z) - Vector2(1, 1), Vector2(2, 2)))
 	var inner: Rect2 = bounds.grow(-1.0)
 	var attempts: int = 0
@@ -35,17 +35,17 @@ static func generate(rng: RandomNumberGenerator, count: int, bounds: Rect2,
 		if not inner.encloses(r):
 			continue
 		var ok: bool = true
-		for w in walls:
+		for w: Rect2 in walls:
 			if overlaps(r, w, min_gap):
 				ok = false
 				break
 		if ok:
-			for p in placed:
+			for p: Rect2 in placed:
 				if overlaps(r, p, min_gap):
 					ok = false
 					break
 		if ok:
-			for c in clear_rects:
+			for c: Rect2 in clear_rects:
 				if overlaps(r, c, min_gap):
 					ok = false
 					break

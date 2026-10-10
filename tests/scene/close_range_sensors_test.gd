@@ -10,7 +10,7 @@ func _robot(runner: GdUnitSceneRunner, pos: Vector3, yaw: float) -> DriveBody:
 	r.position = pos
 	r.rotation.y = yaw
 	runner.scene().add_child(r)
-	for s in r.get_node("Sensors").get_children():
+	for s: Node in r.get_node("Sensors").get_children():
 		if s is SensorBase:
 			(s as SensorBase).body = r
 	return r
