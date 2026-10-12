@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="RoundConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/round_config.gd" id="cfg"]
+
+[resource]
+script = ExtResource("cfg")
+variant_name = "default"
+seed = 1
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+tag_range = 1.5
+prop_count = 12
+seeker_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_strategy = "static"
+noise_std = 0.0

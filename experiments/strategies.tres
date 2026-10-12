@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="ExperimentConfig" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/experiment/experiment_config.gd" id="exp"]
+[ext_resource type="Script" path="res://scripts/game/round_config.gd" id="cfg"]
+
+[sub_resource type="Resource" id="static_hiders"]
+script = ExtResource("cfg")
+variant_name = "static_hiders"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_strategy = "static"
+
+[sub_resource type="Resource" id="dynamic_hiders"]
+script = ExtResource("cfg")
+variant_name = "dynamic_hiders"
+hider_count = 3
+head_start = 15.0
+round_time = 120.0
+seeker_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_sensors = PackedStringArray("lidar", "vision", "ultrasonic", "bumper")
+hider_strategy = "dynamic"
+
+[resource]
+script = ExtResource("exp")
+variants = Array[ExtResource("cfg")]([SubResource("static_hiders"), SubResource("dynamic_hiders")])
+rounds_per_variant = 30
+seed_base = 1000

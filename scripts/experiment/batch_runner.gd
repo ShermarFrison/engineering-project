@@ -1,0 +1,211 @@
+## Headless experiment driver. Usage (from project root; or use run_experiment.sh):
+##   ./Godot_v4.7.2-stable_linux.x86_64 --headless --path . --fixed-fps 60 res://scenes/batch.tscn -- \
+##       --config res://experiments/ablation.tres --rounds 50 --out experiments/ablation.csv
+## --time-scale S runs S simulated seconds per 1/60 s of engine frame time while keeping the
+## physics step at 1/60 s: Engine.time_scale scales every physics delta, so the tick rate is
+## raised to 60*S to compensate. --fixed-fps 60 (an engine flag, before `--`) drops real-time
+## sync so the run is CPU-bound; without it the run is real-time at S x speed. Either way the
+## recorded rows are the same (the step is checked on the first tick).
+## Seeds: ExperimentConfig.seed_base + --seed-offset + round index (0-based, per variant).
+## Exit codes: 0 all rounds recorded; 2 bad arguments/config, unwritable output or wrong
+## physics step; 3 finished but at least one round was skipped (setup timed out).
+class_name BatchRunner
+extends Node
+
+@onready var gm: GameManager = $GameManager
+
+var _variants: Array[RoundConfig] = []
+var _rounds: int = 20
+var _out_path: String = "experiments/results.csv"
+var _abs_out: String = ""  # _out_path resolved to an absolute file path
+var _log_transitions: bool = false
+var _seed_offset: int = 0
+var _seed_base: int = 1000  # from the ExperimentConfig; first seed = _seed_base + _seed_offset
+var _time_scale: float = 8.0
+
+var _vi: int = 0
+var _si: int = 0
+var _csv: FileAccess
+var _tcsv: FileAccess
+var _summary: Dictionary = {}  # variant -> {rounds, caught, total, duration_sum}
+var _pending: bool = false  # a round was started and has neither finished nor been skipped
+var _skipped: Array[String] = []  # "variant seed" of every round that produced no results
+var _first_tick: bool = true  # the physics step is checked once, on the first tick
+
+
+func _parse_args() -> bool:
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var config_path: String = ""
+	var i: int = 0
+	while i < args.size():
+		var a: String = args[i]
+		var has_val: bool = i + 1 < args.size()
+		match a:
+			"--config":
+				if not has_val:
+					return false
+				config_path = args[i + 1]
+				i += 1
+			"--rounds":
+				if not has_val:
+					return false
+				_rounds = int(args[i + 1])
+				i += 1
+			"--out":
+				if not has_val:
+					return false
+				_out_path = args[i + 1]
+				i += 1
+			"--time-scale":
+				if not has_val:
+					return false
+				if not args[i + 1].is_valid_float() or float(args[i + 1]) <= 0.0:
+					push_error("--time-scale must be a number > 0 (got %s)" % args[i + 1])
+					return false
+				_time_scale = float(args[i + 1])
+				i += 1
+			"--seed-offset":
+				if not has_val:
+					return false
+				if not args[i + 1].is_valid_int():
+					push_error("--seed-offset must be an integer (got %s)" % args[i + 1])
+					return false
+				_seed_offset = int(args[i + 1])
+				i += 1
+			"--log-transitions":
+				_log_transitions = true
+			_:
+				push_error("unknown arg %s" % a)
+				return false
+		i += 1
+	if config_path == "":
+		push_error("--config is required")
+		return false
+	var cfg := load(config_path) as ExperimentConfig
+	if cfg == null:
+		push_error("cannot load %s as ExperimentConfig" % config_path)
+		return false
+	_variants = cfg.variants
+	_seed_base = cfg.seed_base
+	if not args.has("--rounds"):
+		_rounds = cfg.rounds_per_variant
+	if _rounds < 1:
+		push_error("--rounds must be at least 1 (got %d)" % _rounds)
+		return false
+	if _variants.is_empty():
+		push_error("%s has no variants" % config_path)
+		return false
+	return true
+
+
+func _ready() -> void:
+	if not _parse_args():
+		get_tree().quit(2)
+		return
+	# Engine.time_scale multiplies every physics delta; raising the tick rate by the same factor
+	# keeps the step at 1/60 s, so batch rows match the game and the tests (see NOTES).
+	Engine.physics_ticks_per_second = roundi(60.0 * _time_scale)
+	Engine.time_scale = _time_scale
+	_abs_out = _out_path
+	if _out_path.begins_with("res://") or _out_path.begins_with("user://"):
+		_abs_out = ProjectSettings.globalize_path(_out_path)
+	elif not _out_path.is_absolute_path():
+		_abs_out = ProjectSettings.globalize_path("res://").path_join(_out_path)
+	_csv = FileAccess.open(_abs_out, FileAccess.WRITE)
+	if _csv == null:
+		push_error("cannot open %s" % _abs_out)
+		get_tree().quit(2)
+		return
+	_csv.store_csv_line(ResultsCsv.header())
+	_csv.flush()
+	if _log_transitions:
+		var tpath: String = _abs_out.get_basename() + "_transitions.csv"
+		_tcsv = FileAccess.open(tpath, FileAccess.WRITE)
+		if _tcsv == null:
+			push_error("cannot open %s" % tpath)
+			get_tree().quit(2)
+			return
+		_tcsv.store_csv_line(ResultsCsv.transitions_header())
+		_tcsv.flush()
+	gm.round_finished.connect(_on_round_finished)
+	_start_next()
+
+
+func _start_next() -> void:
+	if _vi >= _variants.size():
+		_finish()
+		return
+	var cfg: RoundConfig = _variants[_vi].duplicate()
+	cfg.seed = _seed()
+	print("[batch] variant=%s seed=%d (%d/%d)" % [cfg.variant_name, cfg.seed, _si + 1, _rounds])
+	_pending = true
+	gm.start_round(cfg)
+
+
+func _seed() -> int:
+	return _seed_base + _seed_offset + _si
+
+
+## GameManager drops back to "idle" without emitting round_finished when its setup
+## times out (navmesh never ready within 600 ticks). Skip that round instead of waiting forever.
+## Also refuses to run (quit 2) if the physics step is not 1/60 s, so a misconfigured run
+## can never silently write coarse-step rows.
+func _physics_process(dt: float) -> void:
+	if _first_tick:
+		_first_tick = false
+		if absf(dt - 1.0 / 60.0) > 1e-4:
+			push_error("physics step is %f, expected 1/60" % dt)
+			_pending = false
+			get_tree().quit(2)
+			return
+	if _pending and gm.phase == "idle":
+		_on_round_finished({})
+
+
+## Advances the batch; driven by GameManager.round_finished (or the idle watchdog above).
+func _on_round_finished(res: Dictionary) -> void:
+	_pending = false
+	if res.is_empty():
+		push_error("[batch] variant=%s seed=%d produced no results; round skipped" % [_variants[_vi].variant_name, _seed()])
+		_skipped.append("%s %d" % [_variants[_vi].variant_name, _seed()])
+	else:
+		_record(res)
+	_si += 1
+	if _si >= _rounds:
+		_si = 0
+		_vi += 1
+	call_deferred("_start_next")
+
+
+func _record(res: Dictionary) -> void:
+	_csv.store_csv_line(ResultsCsv.row(res))
+	_csv.flush()
+	if _tcsv:
+		for r: PackedStringArray in ResultsCsv.transitions_rows(res):
+			_tcsv.store_csv_line(r)
+		_tcsv.flush()
+	var v: String = res["variant"]
+	if not _summary.has(v):
+		_summary[v] = {"rounds": 0, "caught": 0, "total": 0, "duration_sum": 0.0}
+	_summary[v]["rounds"] += 1
+	_summary[v]["caught"] += int(res["hiders_caught"])
+	_summary[v]["total"] += int(res["hiders_total"])
+	_summary[v]["duration_sum"] += float(res["duration"])
+
+
+func _finish() -> void:
+	_csv.close()
+	if _tcsv:
+		_tcsv.close()
+	print("\n%-24s %6s %10s %10s" % ["variant", "rounds", "catch_rate", "mean_dur"])
+	for v: String in _summary:
+		var s: Dictionary = _summary[v]
+		print("%-24s %6d %10.3f %10.1f" % [v, s["rounds"], float(s["caught"]) / maxi(1, s["total"]), s["duration_sum"] / maxi(1, s["rounds"])])
+	print("[batch] wrote %s" % _abs_out)
+	if not _skipped.is_empty():
+		# Rows already written stay; the exit code flags the shrunken seed sets.
+		print("[batch] %d round(s) skipped (no results): %s" % [_skipped.size(), ", ".join(_skipped)])
+		get_tree().quit(3)
+		return
+	print("[batch] 0 rounds skipped")
+	get_tree().quit(0)

@@ -1,0 +1,376 @@
+[gd_scene load_steps=46 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/arena.gd" id="1_arena"]
+[ext_resource type="Script" path="res://scripts/game/nav_service.gd" id="2_nav"]
+
+[sub_resource type="StandardMaterial3D" id="wall_mat"]
+albedo_color = Color(0.75, 0.75, 0.78, 1)
+
+[sub_resource type="Environment" id="env"]
+background_mode = 1
+background_color = Color(0.53, 0.81, 0.92, 1)
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 1.0
+
+[sub_resource type="BoxShape3D" id="shape_Floor"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="BoxMesh" id="mesh_Floor"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="BoxShape3D" id="shape_OuterN"]
+size = Vector3(30.6, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_OuterN"]
+size = Vector3(30.6, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_OuterS"]
+size = Vector3(30.6, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_OuterS"]
+size = Vector3(30.6, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_OuterW"]
+size = Vector3(0.3, 2, 30.6)
+
+[sub_resource type="BoxMesh" id="mesh_OuterW"]
+size = Vector3(0.3, 2, 30.6)
+
+[sub_resource type="BoxShape3D" id="shape_OuterE"]
+size = Vector3(0.3, 2, 30.6)
+
+[sub_resource type="BoxMesh" id="mesh_OuterE"]
+size = Vector3(0.3, 2, 30.6)
+
+[sub_resource type="BoxShape3D" id="shape_MidV_N"]
+size = Vector3(0.3, 2, 7)
+
+[sub_resource type="BoxMesh" id="mesh_MidV_N"]
+size = Vector3(0.3, 2, 7)
+
+[sub_resource type="BoxShape3D" id="shape_MidV_S"]
+size = Vector3(0.3, 2, 7)
+
+[sub_resource type="BoxMesh" id="mesh_MidV_S"]
+size = Vector3(0.3, 2, 7)
+
+[sub_resource type="BoxShape3D" id="shape_Pillar"]
+size = Vector3(2, 2, 2)
+
+[sub_resource type="BoxMesh" id="mesh_Pillar"]
+size = Vector3(2, 2, 2)
+
+[sub_resource type="BoxShape3D" id="shape_WestH_N_a"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_WestH_N_a"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_WestH_N_b"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_WestH_N_b"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_EastH_N_a"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_EastH_N_a"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_EastH_N_b"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_EastH_N_b"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_WestH_S_a"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_WestH_S_a"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_WestH_S_b"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_WestH_S_b"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_EastH_S_a"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_EastH_S_a"]
+size = Vector3(4, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_EastH_S_b"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxMesh" id="mesh_EastH_S_b"]
+size = Vector3(7, 2, 0.3)
+
+[sub_resource type="BoxShape3D" id="shape_NookNE"]
+size = Vector3(0.3, 2, 5)
+
+[sub_resource type="BoxMesh" id="mesh_NookNE"]
+size = Vector3(0.3, 2, 5)
+
+[sub_resource type="BoxShape3D" id="shape_NookSW"]
+size = Vector3(0.3, 2, 5)
+
+[sub_resource type="BoxMesh" id="mesh_NookSW"]
+size = Vector3(0.3, 2, 5)
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1_arena")
+
+[node name="Static" type="Node3D" parent="."]
+
+[node name="Floor" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/Floor"]
+shape = SubResource("shape_Floor")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/Floor"]
+mesh = SubResource("mesh_Floor")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="OuterN" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -15.15)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/OuterN"]
+shape = SubResource("shape_OuterN")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/OuterN"]
+mesh = SubResource("mesh_OuterN")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="OuterS" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 15.15)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/OuterS"]
+shape = SubResource("shape_OuterS")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/OuterS"]
+mesh = SubResource("mesh_OuterS")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="OuterW" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.15, 1, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/OuterW"]
+shape = SubResource("shape_OuterW")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/OuterW"]
+mesh = SubResource("mesh_OuterW")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="OuterE" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15.15, 1, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/OuterE"]
+shape = SubResource("shape_OuterE")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/OuterE"]
+mesh = SubResource("mesh_OuterE")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="MidV_N" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -11.5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/MidV_N"]
+shape = SubResource("shape_MidV_N")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/MidV_N"]
+mesh = SubResource("mesh_MidV_N")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="MidV_S" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 11.5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/MidV_S"]
+shape = SubResource("shape_MidV_S")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/MidV_S"]
+mesh = SubResource("mesh_MidV_S")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="Pillar" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/Pillar"]
+shape = SubResource("shape_Pillar")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/Pillar"]
+mesh = SubResource("mesh_Pillar")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="WestH_N_a" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 1, -5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/WestH_N_a"]
+shape = SubResource("shape_WestH_N_a")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/WestH_N_a"]
+mesh = SubResource("mesh_WestH_N_a")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="WestH_N_b" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 1, -5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/WestH_N_b"]
+shape = SubResource("shape_WestH_N_b")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/WestH_N_b"]
+mesh = SubResource("mesh_WestH_N_b")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="EastH_N_a" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1, -5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/EastH_N_a"]
+shape = SubResource("shape_EastH_N_a")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/EastH_N_a"]
+mesh = SubResource("mesh_EastH_N_a")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="EastH_N_b" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.5, 1, -5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/EastH_N_b"]
+shape = SubResource("shape_EastH_N_b")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/EastH_N_b"]
+mesh = SubResource("mesh_EastH_N_b")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="WestH_S_a" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 1, 5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/WestH_S_a"]
+shape = SubResource("shape_WestH_S_a")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/WestH_S_a"]
+mesh = SubResource("mesh_WestH_S_a")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="WestH_S_b" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 1, 5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/WestH_S_b"]
+shape = SubResource("shape_WestH_S_b")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/WestH_S_b"]
+mesh = SubResource("mesh_WestH_S_b")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="EastH_S_a" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1, 5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/EastH_S_a"]
+shape = SubResource("shape_EastH_S_a")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/EastH_S_a"]
+mesh = SubResource("mesh_EastH_S_a")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="EastH_S_b" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.5, 1, 5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/EastH_S_b"]
+shape = SubResource("shape_EastH_S_b")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/EastH_S_b"]
+mesh = SubResource("mesh_EastH_S_b")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="NookNE" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 1, -12.5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/NookNE"]
+shape = SubResource("shape_NookNE")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/NookNE"]
+mesh = SubResource("mesh_NookNE")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="NookSW" type="StaticBody3D" parent="Static"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 1, 12.5)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Shape" type="CollisionShape3D" parent="Static/NookSW"]
+shape = SubResource("shape_NookSW")
+
+[node name="Mesh" type="MeshInstance3D" parent="Static/NookSW"]
+mesh = SubResource("mesh_NookSW")
+surface_material_override/0 = SubResource("wall_mat")
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="Robots" type="Node3D" parent="."]
+
+[node name="SeekerSpawn" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, 0)
+
+[node name="HiderSpawns" type="Node3D" parent="."]
+
+[node name="H1" type="Marker3D" parent="HiderSpawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, -12)
+
+[node name="H2" type="Marker3D" parent="HiderSpawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, -11)
+
+[node name="H3" type="Marker3D" parent="HiderSpawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, 11)
+
+[node name="H4" type="Marker3D" parent="HiderSpawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, 12)
+
+[node name="H5" type="Marker3D" parent="HiderSpawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, -2)
+
+[node name="NavService" type="Node" parent="."]
+script = ExtResource("2_nav")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 0, 10, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
