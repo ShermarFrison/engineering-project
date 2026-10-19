@@ -181,6 +181,7 @@ func test_spawns_configured_hider_count_and_props() -> void:
 	var cfg := _short_config()
 	cfg.hider_count = 3
 	cfg.prop_count = 10
+	cfg.maze_enabled = false
 	gm.start_round(cfg)
 	assert_bool(await _wait_setup(gm)).is_true()
 	assert_int(gm.hiders.size()).is_equal(3)

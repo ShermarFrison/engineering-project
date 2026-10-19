@@ -4,8 +4,10 @@
 class_name NavService
 extends Node
 
-@export var agent_radius: float = 0.5
-@export var cell_size: float = 0.25
+# Fine voxels: thin maze walls rasterize to whole cells, and 1 m corridors must survive the
+# agent_radius erosion on both sides.
+@export var agent_radius: float = 0.2
+@export var cell_size: float = 0.1
 
 var _region: NavigationRegion3D
 var _probe_a: Vector3
@@ -31,6 +33,8 @@ func bake(source_root: Node3D) -> void:
 	_region.navigation_mesh = nm
 	add_child(_region)
 	var map: RID = get_viewport().world_3d.navigation_map
+	NavigationServer3D.map_set_cell_size(map, nm.cell_size)
+	NavigationServer3D.map_set_cell_height(map, nm.cell_height)
 	NavigationServer3D.map_set_use_async_iterations(map, false)
 	_ready_flag = false
 

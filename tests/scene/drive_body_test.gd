@@ -82,7 +82,7 @@ func test_wheel_meshes_spin_when_driving() -> void:
 	robot.set_command(1.0, 0.0)
 	await ticks(10)
 	assert_bool(wheel.transform.basis.is_equal_approx(before)).is_false()
-	assert_vector(wheel.position).is_equal_approx(Vector3(-0.2, 0.011, 0.0), Vector3(1e-4, 1e-4, 1e-4))  # spins in place
+	assert_vector(wheel.position).is_equal_approx(Vector3(-0.1, 0.0055, 0.0), Vector3(1e-4, 1e-4, 1e-4))  # spins in place
 
 
 ## Robot-frame direction of the rim point that was at the bottom of the wheel at rest.

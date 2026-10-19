@@ -15,6 +15,11 @@ extends Resource
 @export var hider_strategy: String = "static"  # "static" | "dynamic"
 @export var noise_std: float = 0.0  # metres: lidar, ultrasonic and vision distance
 @export var bearing_noise_deg: float = 0.0  # degrees: vision bearing
+@export var maze_enabled: bool = true  # seeded DFS maze over the arena floor; disables props
+@export var maze_rows: int = 32
+@export var maze_cols: int = 32
+@export var maze_loop_prob: float = 0.1  # chance each interior wall left by DFS is removed (adds cycles)
+@export var maze_wall_thickness: float = 0.1  # metres
 
 
 func has_sensor(role: String, sensor: String) -> bool:

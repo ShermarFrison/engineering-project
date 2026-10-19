@@ -7,7 +7,7 @@ extends SensorBase
 @export var fov_deg: float = 90.0
 @export var max_range: float = 10.0
 @export var los_mask: int = 7
-@export var los_target_height: float = 0.25  # centre of the target's mast above its body origin
+@export var los_target_height: float = 0.125  # centre of the target's mast above its body origin
 @export var bearing_noise_std: float = 0.0  # radians
 
 

@@ -5,10 +5,10 @@ class_name DriveBody
 extends RigidBody3D
 
 @export var role: String = "hider"  # "seeker" | "hider"
-@export var wheel_radius: float = 0.1
-@export var track_width: float = 0.4
-@export var max_wheel_speed: float = 25.0
-@export var max_wheel_accel: float = 60.0
+@export var wheel_radius: float = 0.05
+@export var track_width: float = 0.2
+@export var max_wheel_speed: float = 50.0  # rad/s; keeps the 2.5 m/s top speed with the small wheels
+@export var max_wheel_accel: float = 120.0
 
 var model: DriveModel = DriveModel.new()
 var distance_travelled: float = 0.0

@@ -1,10 +1,10 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://blqvyw116olrq"]
 
-[ext_resource type="Script" path="res://scripts/main.gd" id="main"]
-[ext_resource type="PackedScene" path="res://scenes/arena/arena.tscn" id="arena"]
-[ext_resource type="Script" path="res://scripts/game/game_manager.gd" id="gm"]
-[ext_resource type="Script" path="res://scripts/ui/camera_rig.gd" id="cam"]
-[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="hud"]
+[ext_resource type="PackedScene" uid="uid://b540ukc6ial0u" path="res://scenes/arena/arena.tscn" id="arena"]
+[ext_resource type="Script" uid="uid://bdlmv37dlpv4p" path="res://scripts/ui/camera_rig.gd" id="cam"]
+[ext_resource type="Script" uid="uid://c2dbl8b8rpki4" path="res://scripts/game/game_manager.gd" id="gm"]
+[ext_resource type="Script" uid="uid://bolff6pv4utjc" path="res://scripts/ui/hud.gd" id="hud"]
+[ext_resource type="Script" uid="uid://bnaqj4k8hisci" path="res://scripts/main.gd" id="main"]
 
 [sub_resource type="StyleBoxFlat" id="hud_bg"]
 content_margin_left = 8.0
@@ -13,26 +13,26 @@ content_margin_right = 8.0
 content_margin_bottom = 6.0
 bg_color = Color(0, 0, 0, 0.6)
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=2003355704]
 script = ExtResource("main")
 
-[node name="Arena" parent="." instance=ExtResource("arena")]
+[node name="Arena" parent="." unique_id=971192572 instance=ExtResource("arena")]
 
-[node name="GameManager" type="Node" parent="."]
+[node name="GameManager" type="Node" parent="." unique_id=177127135]
 script = ExtResource("gm")
 arena_path = NodePath("../Arena")
 
-[node name="CameraRig" type="Node3D" parent="."]
+[node name="CameraRig" type="Node3D" parent="." unique_id=951532614]
 script = ExtResource("cam")
 
-[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+[node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=1491729269]
 current = true
 far = 200.0
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=329932702]
 script = ExtResource("hud")
 
-[node name="Text" type="Label" parent="HUD"]
+[node name="Text" type="Label" parent="HUD" unique_id=1792660583]
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 700.0

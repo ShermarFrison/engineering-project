@@ -21,11 +21,11 @@ func test_path_between_seeker_and_every_hider_spawn() -> void:
 func test_wall_rects_and_bounds() -> void:
 	var runner := scene_runner(auto_free(ARENA.instantiate()))
 	var arena: Arena = runner.scene()
-	assert_that(arena.bounds()).is_equal(Rect2(-15, -15, 30, 30))
+	assert_that(arena.bounds()).is_equal(Rect2(-16, -16, 32, 32))
 	var rects: Array[Rect2] = arena.wall_rects()
-	assert_int(rects.size()).is_greater_equal(8)  # 4 outer + interior walls
+	assert_int(rects.size()).is_equal(4)  # outer walls; interior walls come from build_maze()
 	for rct: Rect2 in rects:
-		assert_bool(Rect2(-15.5, -15.5, 31, 31).encloses(rct)).is_true()
+		assert_bool(Rect2(-17, -17, 34, 34).encloses(rct)).is_true()
 
 
 func test_hider_spawns_not_visible_from_seeker_spawn() -> void:

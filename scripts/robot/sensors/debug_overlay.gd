@@ -23,7 +23,7 @@ func draw(bb: Blackboard, vision: VisionCone) -> void:
 	if not visible_globally:
 		return
 	global_transform = Transform3D.IDENTITY
-	var origin: Vector3 = bb.position + Vector3(0, 0.15, 0)
+	var origin: Vector3 = bb.position + Vector3(0, 0.075, 0)
 	if bb.lidar_enabled and bb.lidar_ranges.size() > 0:
 		_im.surface_begin(Mesh.PRIMITIVE_LINES)
 		for i: int in bb.lidar_ranges.size():
@@ -48,5 +48,5 @@ func draw(bb: Blackboard, vision: VisionCone) -> void:
 		_im.surface_begin(Mesh.PRIMITIVE_LINES)
 		_im.surface_set_color(Color(1, 1, 1, 0.8))
 		_im.surface_add_vertex(origin)
-		_im.surface_add_vertex(bb.goal_pos + Vector3(0, 0.15, 0))
+		_im.surface_add_vertex(bb.goal_pos + Vector3(0, 0.075, 0))
 		_im.surface_end()

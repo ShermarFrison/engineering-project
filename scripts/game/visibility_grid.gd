@@ -5,6 +5,7 @@ class_name VisibilityGrid
 extends RefCounted
 
 var cell_size: float = 2.0
+var wall_clearance: float = 0.5  # cells whose centre is closer than this to a wall are dropped
 var centers: Array[Vector3] = []
 var openness: PackedFloat32Array = PackedFloat32Array()
 var visible_from_spawn: Array[bool] = []
@@ -33,7 +34,7 @@ func build(bounds: Rect2, walls: Array[Rect2], seeker_spawn: Vector3, los: Calla
 				continue
 			var blocked: bool = false
 			for w: Rect2 in walls:
-				if w.grow(0.5).has_point(p):
+				if w.grow(wall_clearance).has_point(p):
 					blocked = true
 					break
 			if blocked:

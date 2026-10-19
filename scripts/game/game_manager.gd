@@ -73,12 +73,17 @@ func _begin_setup() -> void:
 	hiders.clear()
 	seeker = null
 	_spawner.clear(arena.props_root)
-	# Props (seeded), keep spawns clear. Typed list built with append_array: `[a] + typed`
-	# is an untyped Array and fails at runtime when assigned to Array[Vector3].
-	var keep: Array[Vector3] = [arena.seeker_spawn_point()]
-	keep.append_array(arena.hider_spawn_points())
-	var layout := PropLayout.generate(rng, config.prop_count, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
-	_spawner.spawn(layout, arena.props_root)
+	if config.maze_enabled:
+		# Props would block the 1 m corridors, so a maze round has none.
+		arena.build_maze(rng, config.maze_rows, config.maze_cols, config.maze_loop_prob, config.maze_wall_thickness)
+	else:
+		arena.clear_maze()
+		# Props (seeded), keep spawns clear. Typed list built with append_array: `[a] + typed`
+		# is an untyped Array and fails at runtime when assigned to Array[Vector3].
+		var keep: Array[Vector3] = [arena.seeker_spawn_point()]
+		keep.append_array(arena.hider_spawn_points())
+		var layout := PropLayout.generate(rng, config.prop_count, arena.bounds(), arena.wall_rects(), keep, PropSpawner.SIZES)
+		_spawner.spawn(layout, arena.props_root)
 	arena.nav.bake(arena.static_root)
 	_setup_ticks = 0
 
@@ -127,6 +132,10 @@ func _physics_process(dt: float) -> void:
 					phase = "idle"  # no signal; results() stays {} and BatchRunner skips the round
 				return
 			grid = VisibilityGrid.new()
+			if config.maze_enabled:
+				# One grid cell per maze cell: 2 m cells would be centred on wall lines.
+				grid.cell_size = arena.bounds().size.x / config.maze_cols
+				grid.wall_clearance = 0.3
 			grid.build(arena.bounds(), arena.wall_rects(), arena.seeker_spawn_point(), _los_walls)
 			_spawn_robots()
 			seeker.active = true

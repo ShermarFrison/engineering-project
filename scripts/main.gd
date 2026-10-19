@@ -14,7 +14,10 @@ func _ready() -> void:
 	hud.bind(gm)
 	gm.round_finished.connect(func(res: Dictionary) -> void: print(JSON.stringify(res, "  ")))
 	gm.round_started.connect(_on_round_started)
-	gm.start_round(DEFAULT_CONFIG.duplicate())
+	# A fresh seed per launch, so every start gets a new maze; batch runs keep their seeds.
+	var cfg: RoundConfig = DEFAULT_CONFIG.duplicate()
+	cfg.seed = randi()
+	gm.start_round(cfg)
 
 
 ## The previous round's robots are freed on restart: drop any follow target.

@@ -33,8 +33,8 @@ func test_ultrasonic_front_reads_crate_distance() -> void:
 	var bb := _bb(r)
 	(r.get_node("Sensors/Ultrasonic") as Ultrasonic).sense(bb)
 	assert_bool(bb.ultrasonic_enabled).is_true()
-	# sensor sits 0.15 m ahead of the body origin, face at 1.0 => 0.85 (probe: 0.850)
-	assert_float(bb.ultrasonic[0]).is_between(0.80, 0.90)
+	# sensor sits 0.075 m ahead of the body origin, face at 1.0 => 0.925 (probe: 0.925)
+	assert_float(bb.ultrasonic[0]).is_between(0.875, 0.975)
 	# The side cones (centred at +/-35 deg) have inner rays at +/-20 deg that graze the
 	# same crate at ~0.905 m (probe), so they read farther than the front, not clear.
 	assert_float(bb.ultrasonic[1]).is_greater(bb.ultrasonic[0])
